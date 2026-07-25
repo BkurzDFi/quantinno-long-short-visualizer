@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "quantinno-planner",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "cwd": "/Users/brandonsmac/Documents/Claude Builds/Quantinno-long-short-visualizer",
+      "port": 4173
+    }
+  ]
+}

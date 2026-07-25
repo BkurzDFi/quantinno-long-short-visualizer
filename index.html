@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quantinno Tax-Neutral Transition Planner</title>
+    <link rel="stylesheet" href="styles.css?v=31" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="control-panel" aria-label="Client assumptions">
+        <div class="brand-block">
+          <span class="kicker">Client planning view</span>
+          <h1>Quantinno Tax-Neutral Transition Planner</h1>
+          <p>
+            Estimate how a Quantinno-style DEALS Exchange managed account may
+            help transition concentrated shares into diversified equities.
+          </p>
+        </div>
+
+        <section class="input-group compact" id="scenarioManager">
+          <div class="section-title">
+            <h2>Client Scenarios</h2>
+          </div>
+          <label>
+            <span class="label-heading">Saved scenario</span>
+            <select id="scenarioSelect" class="select-input">
+              <option value="">— Current (unsaved) —</option>
+            </select>
+          </label>
+          <div class="button-row">
+            <button id="saveScenarioButton" class="secondary-button" type="button">Save As…</button>
+            <button id="deleteScenarioButton" class="secondary-button" type="button">Delete</button>
+          </div>
+          <p class="status-copy" id="scenarioStatus">Save the current inputs and positions as a named client scenario, then switch between clients from this dropdown.</p>
+        </section>
+
+        <section class="input-group">
+          <div class="section-title">
+            <h2>Planning Goal</h2>
+            <button class="icon-button" id="resetButton" type="button" aria-label="Reset assumptions" title="Reset assumptions">
+              ↺
+            </button>
+          </div>
+          <label>
+            <span class="label-heading">
+              Other Portfolio Assets
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Other Portfolio Assets help"
+                data-tooltip="Everything the client owns besides the concentrated tickers below. Total portfolio = concentrated tickers + other assets, so it updates automatically as tickers, shares, or prices change."
+                title="Everything the client owns besides the concentrated tickers below. Total portfolio = concentrated tickers + other assets, so it updates automatically as tickers, shares, or prices change."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="otherAssetsSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
+              <input id="otherAssets" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Other Portfolio Assets, exact dollar amount" />
+            </div>
+            <output id="otherAssetsValue">$2.0M</output>
+            <div id="portfolioComposition" class="profile-facts"></div>
+          </label>
+          <label>
+            <span class="label-heading">
+              Target Concentration
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Target Concentration help"
+                data-tooltip="Desired final percent in the concentrated stock. 0% matches DEALS Exchange's actual full-diversification end state; higher values model a partial sell-down instead. Lower values increase planned sales and usually increase losses required."
+                title="Desired final percent in the concentrated stock. 0% matches DEALS Exchange's actual full-diversification end state; higher values model a partial sell-down instead. Lower values increase planned sales and usually increase losses required."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="targetConcentrationSlider" type="range" min="0" max="40" value="0" step="1" />
+              <input id="targetConcentration" class="slider-number" type="number" min="0" max="100" step="0.5" value="0" aria-label="Target Concentration, exact percent" />
+            </div>
+            <output id="targetConcentrationValue">0%</output>
+          </label>
+          <label>
+            <span class="label-heading">
+              Capital Gains Tax Rate
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Capital Gains Tax Rate help"
+                data-tooltip="Blended tax rate on realized gains. It directly changes the Tax if sold today estimate."
+                title="Blended tax rate on realized gains. It directly changes the Tax if sold today estimate."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="taxRateSlider" type="range" min="10" max="45" value="25" step="1" />
+              <input id="taxRate" class="slider-number" type="number" min="0" max="100" step="0.5" value="25" aria-label="Capital Gains Tax Rate, exact percent" />
+            </div>
+            <output id="taxRateValue">25%</output>
+          </label>
+        </section>
+
+        <section class="input-group">
+          <div class="section-title">
+            <h2>Strategy Setup</h2>
+          </div>
+          <p class="group-note">
+            DEALS Exchange and DEALS Overlay run at the same time. Exchange is
+            funded by your concentrated tickers; Overlay puts a slice of your
+            other assets to work. Both harvest losses toward the transition.
+          </p>
+
+          <div class="sleeve-heading exchange-heading">
+            <span class="sleeve-badge">Exchange</span>
+            DEALS Exchange · concentrated tickers
+          </div>
+          <p class="sleeve-derived-note" id="exchangeAllocNote">Sized automatically to your concentrated stock.</p>
+          <label>
+            <span class="label-heading">
+              Exchange Gross Exposure
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Exchange Gross Exposure help"
+                data-tooltip="Long/short leverage on the Exchange sleeve. 140/40 is the default, matching Quantinno's DEALS Exchange transition analyses. Reg-T margin allows up to 145/45; higher gross exposure requires Portfolio Margin ($3M minimum, Options Level 3, firm approval at Schwab)."
+                title="Long/short leverage on the Exchange sleeve. 140/40 is the default, matching Quantinno's DEALS Exchange transition analyses. Reg-T margin allows up to 145/45; higher gross exposure requires Portfolio Margin ($3M minimum, Options Level 3, firm approval at Schwab)."
+              >
+                ?
+              </button>
+            </span>
+            <select id="exchangeExposure" class="select-input">
+              <option value="100/0">100/0 - No extension (reference)</option>
+              <option value="115/45">115/45 - 0.7 beta</option>
+              <option value="130/30">130/30 - Overlay/Core default</option>
+              <option value="140/40" selected>140/40 - Exchange default</option>
+              <option value="145/45">145/45 - Reg-T maximum</option>
+              <option value="175/75">175/75 - Portfolio Margin</option>
+              <option value="150/100">150/100 - 0.5 beta, Portfolio Margin</option>
+              <option value="225/125">225/125 - Portfolio Margin</option>
+            </select>
+          </label>
+
+          <div class="sleeve-heading overlay-heading">
+            <span class="sleeve-badge">Overlay</span>
+            DEALS Overlay · other assets
+          </div>
+          <label>
+            <span class="label-heading">
+              Overlay Allocation
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Overlay Allocation help"
+                data-tooltip="How much of your Other Portfolio Assets to enroll in DEALS Overlay as collateral. No new funding is required; existing exposures are maintained. Set to $0 to run Exchange only. Capped at your Other Portfolio Assets amount."
+                title="How much of your Other Portfolio Assets to enroll in DEALS Overlay as collateral. No new funding is required; existing exposures are maintained. Set to $0 to run Exchange only. Capped at your Other Portfolio Assets amount."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="overlayAllocationSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
+              <input id="overlayAllocation" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Overlay Allocation, exact dollar amount" />
+            </div>
+            <output id="overlayAllocationValue">$2.0M</output>
+          </label>
+          <label>
+            <span class="label-heading">
+              Overlay Gross Exposure
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Overlay Gross Exposure help"
+                data-tooltip="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
+                title="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
+              >
+                ?
+              </button>
+            </span>
+            <select id="overlayExposure" class="select-input">
+              <option value="100/0">100/0 - No extension (reference)</option>
+              <option value="115/45">115/45 - 0.7 beta</option>
+              <option value="130/30" selected>130/30 - Overlay/Core default</option>
+              <option value="140/40">140/40 - Exchange default</option>
+              <option value="145/45">145/45 - Reg-T maximum</option>
+              <option value="175/75">175/75 - Portfolio Margin</option>
+              <option value="150/100">150/100 - 0.5 beta, Portfolio Margin</option>
+              <option value="225/125">225/125 - Portfolio Margin</option>
+            </select>
+          </label>
+
+          <label>
+            <span class="label-heading">
+              Reinvestment Benchmark
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Reinvestment Benchmark help"
+                data-tooltip="Benchmark the diversified Exchange proceeds track, mirroring the DEALS Portal election menu. Ex-US-only benchmarks are not available for DEALS Exchange."
+                title="Benchmark the diversified Exchange proceeds track, mirroring the DEALS Portal election menu. Ex-US-only benchmarks are not available for DEALS Exchange."
+              >
+                ?
+              </button>
+            </span>
+            <select id="benchmark" class="select-input">
+              <option value="sp500" selected>S&amp;P 500 (US 500 Large Cap)</option>
+              <option value="r1000">Russell 1000 (US Large &amp; Mid)</option>
+              <option value="r1000v">Russell 1000 Value</option>
+              <option value="r1000g">Russell 1000 Growth</option>
+              <option value="r3000">Russell 3000 (US All Cap)</option>
+              <option value="world">MSCI World (Global Developed)</option>
+              <option value="acwi">MSCI ACWI (Global Dev &amp; Emerging)</option>
+              <option value="acwiExUs">MSCI ACWI ex-US</option>
+              <option value="blend8020">80% S&amp;P 500 / 20% MSCI ACWI ex-US</option>
+              <option value="blend7030">70% S&amp;P 500 / 30% MSCI ACWI ex-US</option>
+            </select>
+            <div id="strategyProfileFacts" class="sleeve-facts"></div>
+          </label>
+        </section>
+
+        <section class="input-group compact">
+          <h2>Costs &amp; Fees</h2>
+          <label>
+            <span class="label-heading">
+              Management Fee
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Management Fee help"
+                data-tooltip="Annual advisory/management fee on the managed account allocation. Editable assumption - replace with the actual negotiated fee schedule."
+                title="Annual advisory/management fee on the managed account allocation. Editable assumption - replace with the actual negotiated fee schedule."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="mgmtFeeSlider" type="range" min="0" max="1.5" value="0.5" step="0.05" />
+              <input id="mgmtFee" class="slider-number" type="number" min="0" max="10" step="0.05" value="0.5" aria-label="Management Fee, exact percent" />
+            </div>
+            <output id="mgmtFeeValue">0.50%</output>
+          </label>
+          <label>
+            <span class="label-heading">
+              Net Financing Spread
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Net Financing Spread help"
+                data-tooltip="Annual net cost of carrying the short extension: Schwab financing at the firm's negotiated rate, minus the Short-Interest Rebate Program (SIRP) rebate. Applied to the short book only."
+                title="Annual net cost of carrying the short extension: Schwab financing at the firm's negotiated rate, minus the Short-Interest Rebate Program (SIRP) rebate. Applied to the short book only."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="financingSpreadSlider" type="range" min="0" max="3" value="0.75" step="0.05" />
+              <input id="financingSpread" class="slider-number" type="number" min="0" max="20" step="0.05" value="0.75" aria-label="Net Financing Spread, exact percent" />
+            </div>
+            <output id="financingSpreadValue">0.75%</output>
+          </label>
+        </section>
+      </aside>
+
+      <section class="dashboard" aria-label="Transition dashboard">
+        <div class="top-strip">
+          <div>
+            <span class="kicker">The client question</span>
+            <h2 id="headline">How long until the concentrated stock can be diversified tax-neutrally?</h2>
+          </div>
+          <button id="printButton" class="text-button" type="button">Print Report</button>
+        </div>
+
+        <nav class="view-tabs" aria-label="Planning views">
+          <button class="tab-button active" type="button" data-tab="summary">Planning Summary</button>
+          <button class="tab-button" type="button" data-tab="scenario">Multi-Year Example</button>
+          <button class="tab-button" type="button" data-tab="theory">Strategy Mechanics</button>
+          <button class="tab-button" type="button" data-tab="onboarding">Onboarding Steps</button>
+        </nav>
+
+        <section class="positions-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Concentrated positions</span>
+              <h3>Tickers, Shares, Price, and Basis</h3>
+            </div>
+            <div class="button-row">
+              <button id="refreshPricesButton" class="secondary-button" type="button">Refresh Prices</button>
+              <button id="addPositionButton" class="secondary-button" type="button">Add Ticker</button>
+              <button id="bulkImportToggle" class="secondary-button" type="button">Bulk Import</button>
+            </div>
+          </div>
+          <div id="bulkImportPanel" class="bulk-import-panel" hidden>
+            <p class="status-copy">
+              Paste rows copied straight from a DEALS Portfolio Holdings Template export - Ticker, Quantity, Market Value,
+              and Cost Basis columns, one row per tax lot. Extra columns, blank rows, and header/title rows are ignored.
+              Lots for the same ticker are summed automatically. Importing replaces the ticker rows below.
+            </p>
+            <textarea
+              id="bulkImportInput"
+              class="bulk-import-textarea"
+              rows="6"
+              placeholder="MU&#9;74&#9;62882.24&#9;5694.30&#10;MU&#9;24&#9;20394.24&#9;1846.80&#10;..."
+            ></textarea>
+            <div class="button-row">
+              <button id="bulkImportApply" class="secondary-button" type="button">Import</button>
+              <button id="bulkImportCancel" class="secondary-button" type="button">Cancel</button>
+            </div>
+            <p id="bulkImportStatus" class="status-copy"></p>
+          </div>
+          <div class="finnhub-controls">
+            <label class="key-label" for="finnhubApiKey">Finnhub API Key</label>
+            <input id="finnhubApiKey" class="key-input" type="password" placeholder="Paste key to enable auto prices" autocomplete="off" />
+            <button id="saveFinnhubKeyButton" class="secondary-button" type="button">Save Key</button>
+            <button id="clearFinnhubKeyButton" class="secondary-button" type="button">Clear</button>
+          </div>
+          <p id="priceStatus" class="status-copy">Prices can be entered manually or refreshed from Finnhub when the local API key is configured.</p>
+          <div class="position-table-wrap">
+            <table class="position-table">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Shares</th>
+                  <th>Price</th>
+                  <th>Cost Basis</th>
+                  <th>Value</th>
+                  <th>Gain</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="positionsBody"></tbody>
+              <tfoot id="positionsTotals"></tfoot>
+            </table>
+          </div>
+        </section>
+
+        <div class="tab-panel active" id="summaryView">
+          <section class="metric-grid" id="metricGrid"></section>
+
+          <section class="story-band">
+            <article>
+              <span class="kicker">Plain English</span>
+              <h3>What this means</h3>
+              <p id="plainEnglish"></p>
+            </article>
+            <article>
+              <span class="kicker">Decision tradeoff</span>
+              <h3>Tax now vs. concentration risk</h3>
+              <p id="tradeoffCopy"></p>
+            </article>
+          </section>
+
+          <section class="chart-grid">
+            <article class="panel transition-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="kicker">Transition equation</span>
+                <h3>Concentrated Stock + DEALS Extension Over Time</h3>
+                </div>
+                <span class="legend-pair">
+                  <i class="concentrated-dot"></i>Concentrated
+                  <i class="core-dot"></i>Diversified core
+                  <i class="long-dot"></i>Strategy long
+                  <i class="short-dot"></i>Strategy short
+                </span>
+              </div>
+              <div id="transitionBlockChart" class="transition-block-chart"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="kicker">Outcome range</span>
+                  <h3>Tax-Neutral Sale Room</h3>
+                </div>
+              </div>
+              <div id="capacityChart" class="capacity-chart"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="kicker">Costs &amp; fees</span>
+                  <h3>What the Strategy Costs</h3>
+                </div>
+              </div>
+              <div id="feePanel" class="fee-panel"></div>
+            </article>
+
+            <article class="panel table-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="kicker">Base case</span>
+                  <h3>Year-by-Year Plan</h3>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Year</th>
+                      <th>Losses</th>
+                      <th>Stock Sold</th>
+                      <th>Remaining</th>
+                    </tr>
+                  </thead>
+                  <tbody id="planTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </div>
+
+        <div class="tab-panel" id="scenarioView">
+          <section class="scenario-hero">
+            <div>
+              <span class="kicker">Illustrative path</span>
+              <h3>How the transition could play out over multiple years</h3>
+              <p id="scenarioIntro"></p>
+            </div>
+            <div class="scenario-summary" id="scenarioSummary"></div>
+          </section>
+
+          <section class="scenario-grid" id="scenarioCards"></section>
+
+          <section class="panel scenario-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="kicker">Base case example</span>
+                <h3>Losses, Returns, and Sales by Year</h3>
+              </div>
+            </div>
+            <div id="multiYearTimeline" class="multi-year-timeline"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Year</th>
+                    <th>Return assumption</th>
+                    <th>Modeled return</th>
+                    <th>Harvested losses</th>
+                    <th>Stock sold</th>
+                    <th>Est. costs</th>
+                    <th>Ending concentration</th>
+                  </tr>
+                </thead>
+                <tbody id="multiYearTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div class="tab-panel" id="theoryView">
+          <section class="scenario-hero theory-hero">
+            <div>
+              <span class="kicker">Strategy mechanics</span>
+              <h3>How the long/short account can create tax-loss capacity</h3>
+              <p id="theoryIntro"></p>
+            </div>
+            <div class="scenario-summary" id="theorySummary"></div>
+          </section>
+
+          <section class="theory-flow" id="theoryFlow"></section>
+        </div>
+
+        <div class="tab-panel" id="onboardingView">
+          <section class="scenario-hero theory-hero">
+            <div>
+              <span class="kicker">From analysis to account</span>
+              <h3>What onboarding at Schwab looks like</h3>
+              <p>
+                If the client decides to move forward, here is the actual path from
+                Quantinno's Schwab onboarding package: one firm-level setup, one
+                portal setup, then a short per-account checklist before trading begins.
+              </p>
+            </div>
+            <div class="scenario-summary">
+              <div><span>Manager account #</span><strong>0813-8120</strong></div>
+              <div><span>Tax-lot disposition</span><strong>HICO (high cost)</strong></div>
+              <div><span>Dividends</span><strong>Hold as cash</strong></div>
+              <div><span>Portfolio Margin min</span><strong>$3M + Options L3</strong></div>
+            </div>
+          </section>
+
+          <section class="onboard-flow">
+            <article class="theory-step">
+              <div class="theory-step-heading">
+                <span>01</span>
+                <div>
+                  <h3>Firm-level custodial setup</h3>
+                  <p>One-time steps that establish the Quantinno relationship at Schwab.</p>
+                </div>
+              </div>
+              <ol class="onboard-checklist">
+                <li>Assign Quantinno's manager account number <strong>0813-8120</strong> to accounts.</li>
+                <li>Enroll accounts in Schwab's <strong>Short-Interest Rebate Program (SIRP)</strong> - it offsets financing costs on the short book.</li>
+                <li>Financing rates follow the firm's negotiated Schwab rate.</li>
+                <li>Planning leverage above 145/45? Start <strong>firm-level Portfolio Margin approval</strong> with the Schwab RM early - it can take several days.</li>
+              </ol>
+            </article>
+
+            <article class="theory-step">
+              <div class="theory-step-heading">
+                <span>02</span>
+                <div>
+                  <h3>DEALS Portal setup</h3>
+                  <p>Quantinno customizes the portal for the firm before accounts onboard.</p>
+                </div>
+              </div>
+              <ol class="onboard-checklist">
+                <li>Complete the <strong>Portal Setup Template</strong>: users, roles (Advisor, Client Service, Firm Admin), and team/pod access.</li>
+                <li>Elect firm-wide <strong>custodians, DEALS strategies, and benchmarks</strong> so account onboarding stays consistent.</li>
+                <li>Optionally set email CCs for transition analysis, onboarding, and service requests.</li>
+                <li>The portal then handles <strong>Transition Analysis requests, account onboarding, service requests, and monthly statements</strong>.</li>
+              </ol>
+            </article>
+
+            <article class="theory-step">
+              <div class="theory-step-heading">
+                <span>03</span>
+                <div>
+                  <h3>Per-account checklist</h3>
+                  <p>Steps for each new DEALS account at Schwab before trading starts.</p>
+                </div>
+              </div>
+              <ol class="onboard-checklist">
+                <li>Assign manager # 0813-8120, strategy name <strong>"Quantinno DEALS"</strong>, and confirm SIRP enrollment.</li>
+                <li>Change tax-lot disposition to <strong>HICO</strong> via the cost basis team.</li>
+                <li>Enable margin; add Options Level 3 + Portfolio Margin application if leverage exceeds 145/45.</li>
+                <li>Journal contributed securities from cash to margin (recently bought mutual funds wait 30 days).</li>
+                <li>Set dividends to <strong>hold as cash</strong>, no reinvesting.</li>
+                <li>Verify cost basis shows in Schwab Advisor Center - <strong>required for DEALS Exchange</strong>.</li>
+                <li>Elect to grant proxies to Quantinno (their policy is not to vote them).</li>
+                <li>Submit the <strong>New Account Onboarding form</strong> on the DEALS Portal.</li>
+              </ol>
+            </article>
+          </section>
+
+          <section class="notes-band">
+            <article>
+              <span class="kicker">Wash-sale monitoring</span>
+              <h3>Linked accounts</h3>
+              <p>
+                Quantinno can watch other Schwab accounts for wash sales through a
+                view-only SL (sub-link) master account: create the SL master, associate
+                only the accounts to monitor, and sign a Data Access Agreement. Do not
+                attach the SL master to the firm's main FA master account.
+              </p>
+            </article>
+            <article>
+              <span class="kicker">Timing tip</span>
+              <h3>Submit margin paperwork early</h3>
+              <p>
+                Reg-T margin caps leverage at 145/45. Anything higher needs Portfolio
+                Margin: $3M account minimum, 15% maintenance margin, Options Level 3,
+                and firm-level Schwab approval that can take several days - submit as
+                early as feasible so the account launch is not delayed.
+              </p>
+            </article>
+          </section>
+        </div>
+
+        <section class="notes-band">
+          <article>
+            <span class="kicker">Client caveats</span>
+            <h3>Keep this visible</h3>
+            <p>
+              Loss generation is not guaranteed. Tax results depend on the
+              client's facts, realization timing, wash-sale rules, state taxes,
+              lot selection, and market behavior. This is an educational
+              planning estimate, not tax or investment advice.
+            </p>
+          </article>
+          <article>
+            <span class="kicker">Advisor framing</span>
+            <h3>The main decision</h3>
+            <p>
+              The client is choosing between paying taxes sooner to diversify
+              quickly, or waiting for potential losses while continuing to hold
+              concentration risk.
+            </p>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js?v=31"></script>
+  </body>
+</html>
