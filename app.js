@@ -1170,7 +1170,17 @@ async function refreshPrices() {
     const params = new URLSearchParams({ symbols: symbols.join(",") });
     if (apiKey) params.set("token", apiKey);
     const response = await fetch(`/api/quotes?${params.toString()}`);
-    let payload = await response.json();
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (parseError) {
+      // Static hosting (e.g. GitHub Pages) has no /api/quotes endpoint and
+      // returns an HTML 404 here instead of JSON - fail with a clear message
+      // rather than a raw parse error.
+      payload = {
+        error: "Live price refresh needs the local Node server (see README) - it isn't available on this static hosting. Enter prices manually instead.",
+      };
+    }
     if (!response.ok) {
       const errorMessage = payload.error || "Unable to refresh prices.";
       const serverNeedsEnvKey = /missing\s+finnhub_api_key/i.test(errorMessage);
