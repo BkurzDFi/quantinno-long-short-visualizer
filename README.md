@@ -50,8 +50,9 @@ Finnhub.
 - Strategy lineup (Core / Overlay / Exchange), gross exposure menu (130/30
   default through 225/125), benchmark elections, Portfolio Margin rules
   ($3M minimum, Options Level 3, 145/45 Reg-T cap), and the Onboarding Steps
-  tab reflect Quantinno's Schwab onboarding package and DEALS Portal setup
-  template.
+  tab are modeled on Quantinno's DEALS Portal setup and Schwab onboarding
+  process in general terms; firm-specific identifiers (e.g. manager account
+  numbers) are placeholders, not real values.
 - Management fee and net financing spread are editable assumptions included in
   the analysis (fees panel, metrics, narrative, and multi-year table); they are
   not Quantinno's fee schedule. Schwab financing follows the firm's negotiated

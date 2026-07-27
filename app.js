@@ -23,8 +23,7 @@ const lossRatePresets = {
 
 const illustrativeReturnPath = [0.7, 1.25, 0.55, 1.1, 0.8, 1.35, 0.65, 1.05, 0.9, 1.2, 0.75, 1];
 
-// Strategy lineup from Quantinno's DEALS Managed Account Platform overview
-// (Onboarding Package, appendix p.10).
+// Strategy lineup based on Quantinno's DEALS Managed Account Platform.
 const strategyTypes = {
   exchange: {
     label: "DEALS Exchange",
@@ -46,10 +45,10 @@ const strategyTypes = {
   },
 };
 
-// Gross exposure menu from the onboarding package (p.11): 130/30 default for
-// Overlay/Core; 140/40 is the default for Exchange, matching the exposure
-// used in Quantinno's actual DEALS Exchange transition analyses. Reg-T margin
-// allows up to 145/45; higher gross requires Portfolio Margin.
+// Gross exposure menu: 130/30 default for Overlay/Core; 140/40 is the
+// default for Exchange, matching the exposure typically used in Quantinno's
+// DEALS Exchange transition analyses. Reg-T margin allows up to 145/45;
+// higher gross requires Portfolio Margin.
 const exposureOptions = {
   "100/0": { long: 100, short: 0, note: "No extension (reference case)", margin: "None" },
   "115/45": { long: 115, short: 45, note: "0.7 beta option", margin: "Reg-T" },
