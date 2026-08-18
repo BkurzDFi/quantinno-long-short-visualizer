@@ -142,13 +142,15 @@ const SCENARIOS_STORAGE_KEY = "aqrSavedScenarios";
 
 function money(value) {
   const abs = Math.abs(value);
-  if (abs >= 1000000) return `$${(value / 1000000).toFixed(abs >= 10000000 ? 0 : 1)}M`;
-  if (abs >= 1000) return `$${Math.round(value / 1000)}K`;
-  return `$${Math.round(value).toLocaleString()}`;
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1000000) return `${sign}$${(abs / 1000000).toFixed(abs >= 10000000 ? 0 : 1)}M`;
+  if (abs >= 1000) return `${sign}$${Math.round(abs / 1000)}K`;
+  return `${sign}$${Math.round(abs).toLocaleString()}`;
 }
 
 function fullMoney(value) {
-  return `$${Math.round(value).toLocaleString()}`;
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${Math.round(Math.abs(value)).toLocaleString()}`;
 }
 
 function fullMoneyCents(value) {
@@ -231,7 +233,7 @@ function positionValue(position) {
 }
 
 function positionGain(position) {
-  return Math.max(positionValue(position) - position.basis, 0);
+  return positionValue(position) - position.basis;
 }
 
 function gainRatio(position) {
@@ -243,13 +245,18 @@ function getAssumptions() {
   const totalConcentratedValue = positions.reduce((sum, position) => sum + positionValue(position), 0);
   const otherAssets = Number(inputs.otherAssets.value);
   const portfolioValue = otherAssets + totalConcentratedValue;
-  const totalBasis = positions.reduce((sum, position) => sum + Math.min(position.basis, positionValue(position)), 0);
+  const totalBasis = positions.reduce((sum, position) => sum + position.basis, 0);
   const unrealizedGain = positions.reduce((sum, position) => sum + positionGain(position), 0);
   const targetConcentration = Number(inputs.targetConcentration.value) / 100;
   const targetStockValue = portfolioValue * targetConcentration;
   const plannedSale = Math.max(totalConcentratedValue - targetStockValue, 0);
   const salePlan = buildTaxSmartSalePlan(plannedSale);
-  const gainToOffset = salePlan.reduce((sum, sale) => sum + sale.gainRealized, 0);
+  // Unrealized losses in the sale plan net directly against unrealized gains -
+  // selling an underwater lot realizes a real loss immediately, no strategy
+  // harvesting required. Floor at 0: a net realized loss owes no tax and
+  // needs no offsetting losses (scenarioFor already treats gainToOffset <= 0
+  // as "already there").
+  const gainToOffset = Math.max(salePlan.reduce((sum, sale) => sum + sale.gainRealized, 0), 0);
   const taxRate = Number(inputs.taxRate.value) / 100;
   const taxIfSoldToday = gainToOffset * taxRate;
   const tickers = positions.map((position) => position.ticker).filter(Boolean);
@@ -760,12 +767,17 @@ function verticalSegment(segment) {
 }
 
 function renderPlanTable(assumptions, scenario) {
+  const planTable = document.getElementById("planTable");
+  if (scenario.annualLosses <= 0 && assumptions.gainToOffset > 0) {
+    planTable.innerHTML = `<tr class="empty-state-row"><td colspan="4">No losses are being generated at the current exposure settings, so this plan can't make progress. Raise Exchange or Overlay gross exposure above 100/0 to model loss-harvesting capacity.</td></tr>`;
+    return;
+  }
   // Cap the table at the year the transition actually finishes instead of
   // always padding to 10 rows - otherwise it repeats the same completed
   // row (same cumulative losses/sale, 0 remaining) for every year after.
   const displayYears = Number.isFinite(scenario.years) ? clamp(Math.ceil(scenario.years), 1, 10) : 10;
   const rows = scenario.path.filter((row) => row.year > 0 && row.year <= displayYears);
-  document.getElementById("planTable").innerHTML = rows
+  planTable.innerHTML = rows
     .map(
       (row) => `
         <tr>
@@ -780,6 +792,16 @@ function renderPlanTable(assumptions, scenario) {
 }
 
 function renderMultiYearExample(assumptions, baseScenario, scenarios) {
+  if (baseScenario.annualLosses <= 0 && assumptions.gainToOffset > 0) {
+    document.getElementById("scenarioIntro").textContent =
+      "No losses are being generated at the current exposure settings, so there's no multi-year harvesting path to illustrate. Raise Exchange or Overlay gross exposure above 100/0 to model a transition.";
+    document.getElementById("scenarioSummary").innerHTML = "";
+    document.getElementById("scenarioCards").innerHTML = "";
+    document.getElementById("multiYearTimeline").innerHTML = "";
+    document.getElementById("multiYearTable").innerHTML = "";
+    return;
+  }
+
   const names = assumptions.tickers.join(", ") || "the concentrated position";
   const returnRate = assumptions.strategyProfile.totalReturn / 100;
   const rows = buildMultiYearRows(assumptions, baseScenario, returnRate);
@@ -840,7 +862,11 @@ function renderMultiYearExample(assumptions, baseScenario, scenarios) {
 }
 
 function buildMultiYearRows(assumptions, scenario, returnRate) {
-  const displayYears = Math.min(Math.max(Math.ceil(scenario.years || 1), 5), 12);
+  // Stop at the year the transition actually finishes (matching the Year-by-
+  // Year Plan table on the Planning Summary tab) rather than always padding
+  // to a minimum of 5 years, which repeated $0 losses/$0 sold rows past
+  // completion.
+  const displayYears = Number.isFinite(scenario.years) ? clamp(Math.ceil(scenario.years) || 1, 1, 12) : 12;
   const rows = [];
 
   for (let year = 1; year <= displayYears; year += 1) {
@@ -1103,14 +1129,14 @@ function renderPositions() {
       return `
         <tr data-id="${position.id}">
           <td><input class="table-input ticker-input" data-field="ticker" value="${position.ticker}" maxlength="8" /></td>
+          <td>${fullMoney(value)}</td>
+          <td>${fullMoney(gain)} <span>${pct(gainRatio(position) * 100, 0)}</span></td>
           <td><input class="table-input numeric-input" data-field="shares" type="number" min="0" step="1" value="${position.shares}" /></td>
           <td>
             <input class="table-input numeric-input ${isLiveUpdated ? "price-live-updated" : ""}" data-field="price" type="number" min="0" step="0.01" value="${position.price}" />
             ${isLiveUpdated ? '<small class="live-price-note">Live updated</small>' : ""}
           </td>
           <td><input class="table-input numeric-input" data-field="basis" type="number" min="0" step="1000" value="${position.basis}" /></td>
-          <td>${fullMoney(value)}</td>
-          <td>${fullMoney(gain)} <span>${pct(gainRatio(position) * 100, 0)}</span></td>
           <td><button class="row-button" type="button" data-action="remove" aria-label="Remove ${position.ticker}">×</button></td>
         </tr>
       `;
@@ -1123,11 +1149,11 @@ function renderPositions() {
   document.getElementById("positionsTotals").innerHTML = `
     <tr>
       <td>Total concentrated</td>
+      <td>${fullMoney(totalValue)}</td>
+      <td>${fullMoney(totalGain)} <span>${pct(totalValue > 0 ? (totalGain / totalValue) * 100 : 0, 0)}</span></td>
       <td></td>
       <td></td>
       <td>${fullMoney(totalBasis)}</td>
-      <td>${fullMoney(totalValue)}</td>
-      <td>${fullMoney(totalGain)} <span>${pct(totalValue > 0 ? (totalGain / totalValue) * 100 : 0, 0)}</span></td>
       <td></td>
     </tr>
   `;
@@ -1137,7 +1163,7 @@ function updatePosition(id, field, value) {
   positions = positions.map((position) => {
     if (position.id !== id) return position;
     if (field === "ticker") return { ...position, ticker: value.trim().toUpperCase() };
-    return { ...position, [field]: numberValue(value) };
+    return { ...position, [field]: Math.max(0, numberValue(value)) };
   });
   markScenarioDirty();
   renderPositions();
@@ -1161,7 +1187,7 @@ function removePosition(id) {
 }
 
 async function refreshPrices() {
-  const apiKey = storedFinnhubKey();
+  const apiKey = finnhubApiKeyInput.value.trim() || storedFinnhubKey();
   const symbols = positions.map((position) => position.ticker).filter(Boolean);
   if (!symbols.length) return;
 

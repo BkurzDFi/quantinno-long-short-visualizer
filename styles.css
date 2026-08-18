@@ -1971,7 +1971,8 @@ td span {
 
 @media print {
   .control-panel,
-  .text-button {
+  .text-button,
+  .view-tabs {
     display: none;
   }
 
@@ -1984,6 +1985,17 @@ td span {
 
   .dashboard {
     padding: 0;
+  }
+
+  /* "Print Report" is meant to produce the full report regardless of which
+     tab happens to be on screen, so force every tab panel to print, each
+     starting on its own page. */
+  .tab-panel {
+    display: block !important;
+  }
+
+  .tab-panel + .tab-panel {
+    break-before: page;
   }
 
   .panel,
