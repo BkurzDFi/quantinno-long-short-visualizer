@@ -4,9 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Quantinno Tax-Neutral Transition Planner</title>
-    <link rel="stylesheet" href="styles.css?v=31" />
+    <link rel="stylesheet" href="styles.css?v=32" />
   </head>
   <body>
+    <header class="dfi-topbar">
+      <div class="dfi-topbar-inner">
+        <div class="wordmark">
+          <img src="assets/dfi_logo.png" alt="DiversiFi Capital" class="logo" />
+          <div class="name">DiversiFi Capital<small>Quantinno DEALS Transition Planner</small></div>
+        </div>
+        <button id="printButton" class="dfi-topbar-button" type="button">Print Report</button>
+      </div>
+    </header>
     <main class="app-shell">
       <aside class="control-panel" aria-label="Client assumptions">
         <div class="brand-block">
@@ -59,7 +68,6 @@
               <input id="otherAssetsSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
               <input id="otherAssets" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Other Portfolio Assets, exact dollar amount" />
             </div>
-            <output id="otherAssetsValue">$2.0M</output>
             <div id="portfolioComposition" class="profile-facts"></div>
           </label>
           <label>
@@ -221,25 +229,21 @@
 
         <section class="input-group compact">
           <h2>Costs &amp; Fees</h2>
-          <label>
+          <div class="fee-schedule-block">
             <span class="label-heading">
               Management Fee
               <button
                 type="button"
                 class="help-dot"
                 aria-label="Management Fee help"
-                data-tooltip="Annual advisory/management fee on the managed account allocation. Editable assumption - replace with the actual negotiated fee schedule."
-                title="Annual advisory/management fee on the managed account allocation. Editable assumption - replace with the actual negotiated fee schedule."
+                data-tooltip="DiversiFi's published fee schedule for Quantinno strategies carrying a 0.45% TPMM fee: Quantinno's 0.45% fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). Set by the fee schedule, not editable here."
+                title="DiversiFi's published fee schedule for Quantinno strategies carrying a 0.45% TPMM fee: Quantinno's 0.45% fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). Set by the fee schedule, not editable here."
               >
                 ?
               </button>
             </span>
-            <div class="slider-with-number">
-              <input id="mgmtFeeSlider" type="range" min="0" max="1.5" value="0.5" step="0.05" />
-              <input id="mgmtFee" class="slider-number" type="number" min="0" max="10" step="0.05" value="0.5" aria-label="Management Fee, exact percent" />
-            </div>
-            <output id="mgmtFeeValue">0.50%</output>
-          </label>
+            <div id="managementFeeSummary" class="profile-facts"></div>
+          </div>
           <label>
             <span class="label-heading">
               Net Financing Spread
@@ -254,23 +258,37 @@
               </button>
             </span>
             <div class="slider-with-number">
-              <input id="financingSpreadSlider" type="range" min="0" max="3" value="0.75" step="0.05" />
-              <input id="financingSpread" class="slider-number" type="number" min="0" max="20" step="0.05" value="0.75" aria-label="Net Financing Spread, exact percent" />
+              <input id="financingSpreadSlider" type="range" min="0" max="3" value="0.3" step="0.05" />
+              <input id="financingSpread" class="slider-number" type="number" min="0" max="20" step="0.05" value="0.3" aria-label="Net Financing Spread, exact percent" />
             </div>
-            <output id="financingSpreadValue">0.75%</output>
+            <output id="financingSpreadValue">0.30%</output>
           </label>
+          <div class="input-row">
+            <span class="label-heading">
+              <label class="dynamic-hedging-toggle" for="dynamicHedgingEnabled">
+                <input type="checkbox" id="dynamicHedgingEnabled" checked />
+                Dynamic Hedging
+              </label>
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Dynamic Hedging help"
+                data-tooltip="Optional cost for actively managing the short/hedge book, applied to the combined short book like financing. Uncheck to model the plan without this cost."
+                title="Optional cost for actively managing the short/hedge book, applied to the combined short book like financing. Uncheck to model the plan without this cost."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="dynamicHedgingSlider" type="range" min="0" max="1" value="0.2" step="0.05" />
+              <input id="dynamicHedging" class="slider-number" type="number" min="0" max="10" step="0.05" value="0.2" aria-label="Dynamic Hedging, exact percent" />
+            </div>
+            <output id="dynamicHedgingValue">0.20%</output>
+          </div>
         </section>
       </aside>
 
       <section class="dashboard" aria-label="Transition dashboard">
-        <div class="top-strip">
-          <div>
-            <span class="kicker">The client question</span>
-            <h2 id="headline">How long until the concentrated stock can be diversified tax-neutrally?</h2>
-          </div>
-          <button id="printButton" class="text-button" type="button">Print Report</button>
-        </div>
-
         <nav class="view-tabs" aria-label="Planning views">
           <button class="tab-button active" type="button" data-tab="summary">Planning Summary</button>
           <button class="tab-button" type="button" data-tab="scenario">Multi-Year Example</button>
@@ -380,11 +398,42 @@
             <article class="panel">
               <div class="panel-heading">
                 <div>
+                  <span class="kicker">Tax-smart order</span>
+                  <h3>Which Positions Sell First</h3>
+                </div>
+              </div>
+              <div id="saleOrderList" class="sale-order-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
                   <span class="kicker">Costs &amp; fees</span>
                   <h3>What the Strategy Costs</h3>
                 </div>
               </div>
               <div id="feePanel" class="fee-panel"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="kicker">What if</span>
+                  <h3>Compare Exposure Settings</h3>
+                </div>
+              </div>
+              <p class="status-copy">See how a different Exchange/Overlay gross exposure would change the base-case timeline and cost, without changing the plan above.</p>
+              <div class="compare-selects">
+                <label>
+                  <span class="label-heading">Compare Exchange</span>
+                  <select id="compareExchangeExposure" class="select-input"></select>
+                </label>
+                <label>
+                  <span class="label-heading">Compare Overlay</span>
+                  <select id="compareOverlayExposure" class="select-input"></select>
+                </label>
+              </div>
+              <div id="exposureCompareBody" class="exposure-compare-body"></div>
             </article>
 
             <article class="panel table-panel">
@@ -393,7 +442,13 @@
                   <span class="kicker">Base case</span>
                   <h3>Year-by-Year Plan</h3>
                 </div>
+                <div class="stress-control">
+                  <label for="stressShock">Stock price while waiting</label>
+                  <input id="stressShock" type="range" min="-60" max="40" step="5" value="-20" />
+                  <output id="stressShockValue">-20%</output>
+                </div>
               </div>
+              <p class="status-copy" id="stressCaption"></p>
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -402,6 +457,7 @@
                       <th>Losses</th>
                       <th>Stock Sold</th>
                       <th>Remaining</th>
+                      <th id="stressColumnHeader">If -20%</th>
                     </tr>
                   </thead>
                   <tbody id="planTable"></tbody>
@@ -481,6 +537,7 @@
               <div><span>Dividends</span><strong>Hold as cash</strong></div>
               <div><span>Portfolio Margin min</span><strong>$3M + Options L3</strong></div>
             </div>
+            <div id="onboardingPersonalized"></div>
           </section>
 
           <section class="onboard-flow">

@@ -6,9 +6,26 @@ const defaults = {
   overlayAllocation: 2000000,
   overlayExposure: "130/30",
   benchmark: "sp500",
-  mgmtFee: 0.5,
-  financingSpread: 0.75,
+  financingSpread: 0.3,
+  dynamicHedging: 0.2,
 };
+
+// DiversiFi's published fee schedule for Quantinno strategies carrying a
+// 0.45% TPMM (third-party portfolio manager) fee: DiversiFi's advisory fee
+// steps down as total assets under Quantinno management grow. Not editable
+// here since it's a fixed schedule, not an assumption.
+const TPMM_FEE_PCT = 0.45;
+const MANAGEMENT_FEE_TIERS = [
+  { min: 0, max: 5000000, advisoryFee: 0.8 },
+  { min: 5000000, max: 15000000, advisoryFee: 0.6 },
+  { min: 15000000, max: 35000000, advisoryFee: 0.45 },
+  { min: 35000000, max: Infinity, advisoryFee: 0.35 },
+];
+
+function managementFeeTierFor(managedAssets) {
+  const tier = MANAGEMENT_FEE_TIERS.find((row) => managedAssets >= row.min && managedAssets < row.max);
+  return tier || MANAGEMENT_FEE_TIERS[0];
+}
 
 // Calibrated against observed Quantinno DEALS Exchange 140/40 transition
 // analyses: solving each real analysis's own years-to-target for the implied
@@ -112,6 +129,7 @@ let positions = [
 
 const ids = Object.keys(defaults);
 const inputs = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+const dynamicHedgingEnabledCheckbox = document.getElementById("dynamicHedgingEnabled");
 const positionsBody = document.getElementById("positionsBody");
 const priceStatus = document.getElementById("priceStatus");
 const finnhubApiKeyInput = document.getElementById("finnhubApiKey");
@@ -125,7 +143,7 @@ let lastPriceUpdateAt = "";
 // Sliders paired with a directly-editable number input, since a bare range
 // slider can't represent an exact client dollar amount or blended rate
 // (Other/Overlay allocation snap to $250K steps otherwise).
-const pairedSliderIds = ["otherAssets", "targetConcentration", "taxRate", "overlayAllocation", "mgmtFee", "financingSpread"];
+const pairedSliderIds = ["otherAssets", "targetConcentration", "taxRate", "overlayAllocation", "financingSpread", "dynamicHedging"];
 
 const bulkImportToggle = document.getElementById("bulkImportToggle");
 const bulkImportPanel = document.getElementById("bulkImportPanel");
@@ -198,6 +216,19 @@ function syncPairedSlider(id) {
   slider.value = clamp(Number(number.value) || 0, Number(slider.min), Number(slider.max));
 }
 
+// Overlay Allocation can never exceed Other Portfolio Assets (getAssumptions
+// caps it there anyway) - keep the slider's own range capped to match live,
+// so the control itself can't be dragged past what will actually be used.
+function syncOverlayAllocationCap() {
+  const otherAssets = Number(inputs.otherAssets.value) || 0;
+  const overlaySlider = sliderElementFor("overlayAllocation");
+  if (overlaySlider) overlaySlider.max = otherAssets;
+  if (Number(inputs.overlayAllocation.value) > otherAssets) {
+    inputs.overlayAllocation.value = otherAssets;
+  }
+  syncPairedSlider("overlayAllocation");
+}
+
 function wirePairedSlider(id) {
   const slider = sliderElementFor(id);
   const number = inputs[id];
@@ -210,6 +241,13 @@ function wirePairedSlider(id) {
   number.addEventListener("input", () => {
     syncPairedSlider(id);
   });
+}
+
+function syncDynamicHedgingInputsDisabled() {
+  const disabled = !dynamicHedgingEnabledCheckbox.checked;
+  inputs.dynamicHedging.disabled = disabled;
+  const slider = sliderElementFor("dynamicHedging");
+  if (slider) slider.disabled = disabled;
 }
 
 function numberValue(value) {
@@ -278,10 +316,14 @@ function getAssumptions() {
       ? (exchange.allocation * exchange.returnRate + overlay.allocation * overlay.returnRate) / managedAssets
       : 0;
 
-  const mgmtFeeRate = Number(inputs.mgmtFee.value) / 100;
+  const feeTier = managementFeeTierFor(managedAssets);
+  const mgmtFeeRate = (TPMM_FEE_PCT + feeTier.advisoryFee) / 100;
   const financingRate = Number(inputs.financingSpread.value) / 100;
+  const dynamicHedgingEnabled = dynamicHedgingEnabledCheckbox.checked;
+  const dynamicHedgingRate = Number(inputs.dynamicHedging.value) / 100;
   const annualMgmtFee = managedAssets * mgmtFeeRate;
   const annualFinancing = sleeveShortDollars * financingRate;
+  const annualDynamicHedging = dynamicHedgingEnabled ? sleeveShortDollars * dynamicHedgingRate : 0;
 
   const strategyProfile = {
     label: overlay.active ? "DEALS Exchange + Overlay" : `DEALS Exchange ${exchange.exposure.long}/${exchange.exposure.short}`,
@@ -313,11 +355,15 @@ function getAssumptions() {
     sleeveShortDollars,
     benchmark,
     strategyProfile,
+    feeTier,
     mgmtFeeRate,
     financingRate,
+    dynamicHedgingEnabled,
+    dynamicHedgingRate,
     annualMgmtFee,
     annualFinancing,
-    annualCosts: annualMgmtFee + annualFinancing,
+    annualDynamicHedging,
+    annualCosts: annualMgmtFee + annualFinancing + annualDynamicHedging,
     lossRates: lossRatePresets,
   };
 }
@@ -394,8 +440,81 @@ function buildPath(assumptions, annualLosses) {
   return rows;
 }
 
+// Recomputes the base-case scenario under a hypothetical exposure pair
+// without touching the live inputs, so the "Compare Exposure" panel can show
+// a what-if alongside the real plan.
+function computeExposureScenario(exchangeKey, overlayKey) {
+  const originalExchange = inputs.exchangeExposure.value;
+  const originalOverlay = inputs.overlayExposure.value;
+  inputs.exchangeExposure.value = exchangeKey;
+  inputs.overlayExposure.value = overlayKey;
+  const assumptions = getAssumptions();
+  const scenario = scenarioFor(assumptions, "base");
+  inputs.exchangeExposure.value = originalExchange;
+  inputs.overlayExposure.value = originalOverlay;
+  return { assumptions, scenario };
+}
+
+function exposureLabel(assumptions) {
+  return assumptions.sleeves.overlay.active
+    ? `Exchange ${assumptions.sleeves.exchange.exposure.long}/${assumptions.sleeves.exchange.exposure.short} · Overlay ${assumptions.sleeves.overlay.exposure.long}/${assumptions.sleeves.overlay.exposure.short}`
+    : `Exchange ${assumptions.sleeves.exchange.exposure.long}/${assumptions.sleeves.exchange.exposure.short}`;
+}
+
+function renderExposureCompare(assumptions) {
+  const compareExchangeSelect = document.getElementById("compareExchangeExposure");
+  const compareOverlaySelect = document.getElementById("compareOverlayExposure");
+  const body = document.getElementById("exposureCompareBody");
+  if (!compareExchangeSelect || !compareOverlaySelect || !body) return;
+
+  const currentScenario = scenarioFor(assumptions, "base");
+  const { assumptions: compareAssumptions, scenario: compareScenario } = computeExposureScenario(
+    compareExchangeSelect.value,
+    compareOverlaySelect.value,
+  );
+
+  const bothFinite = Number.isFinite(currentScenario.years) && Number.isFinite(compareScenario.years);
+  const yearsDelta = bothFinite ? currentScenario.years - compareScenario.years : 0;
+  const costDelta = compareAssumptions.annualCosts - assumptions.annualCosts;
+  let deltaLine;
+  if (!bothFinite) {
+    deltaLine = "One of these settings generates no losses, so the timelines can't be compared yet.";
+  } else if (Math.abs(yearsDelta) < 0.05 && Math.abs(costDelta) < 1) {
+    deltaLine = "This matches the current plan - change the comparison exposure above to see a tradeoff.";
+  } else {
+    const speedWord = yearsDelta > 0 ? "faster" : "slower";
+    const costWord = costDelta > 0 ? "more" : "less";
+    deltaLine = `That's about ${Math.abs(yearsDelta).toFixed(1)} years ${speedWord} and ${fullMoney(Math.abs(costDelta))}/yr ${costWord} than the current plan.`;
+  }
+
+  body.innerHTML = `
+    <div class="compare-row">
+      <span>Current plan · ${exposureLabel(assumptions)}</span>
+      <strong>${formatYears(currentScenario.years)}</strong>
+      <small>${fullMoney(assumptions.annualCosts)}/yr</small>
+    </div>
+    <div class="compare-row">
+      <span>Comparison · ${exposureLabel(compareAssumptions)}</span>
+      <strong>${formatYears(compareScenario.years)}</strong>
+      <small>${fullMoney(compareAssumptions.annualCosts)}/yr</small>
+    </div>
+    <p class="compare-delta">${deltaLine}</p>
+  `;
+}
+
+function setupExposureCompareSelectors() {
+  const compareExchangeSelect = document.getElementById("compareExchangeExposure");
+  const compareOverlaySelect = document.getElementById("compareOverlayExposure");
+  if (!compareExchangeSelect || !compareOverlaySelect) return;
+  compareExchangeSelect.innerHTML = inputs.exchangeExposure.innerHTML;
+  compareOverlaySelect.innerHTML = inputs.overlayExposure.innerHTML;
+  compareExchangeSelect.value = inputs.exchangeExposure.value;
+  compareOverlaySelect.value = inputs.overlayExposure.value;
+}
+
 function updateOutputs() {
   syncBenchmarkAvailability();
+  syncOverlayAllocationCap();
   const assumptions = getAssumptions();
   const scenarios = {
     conservative: scenarioFor(assumptions, "conservative"),
@@ -408,10 +527,39 @@ function updateOutputs() {
   renderNarrative(assumptions, scenarios);
   drawTransitionBlocks(document.getElementById("transitionBlockChart"), assumptions, scenarios.base);
   drawCapacity(document.getElementById("capacityChart"), scenarios);
+  renderSaleOrder(assumptions);
+  renderManagementFeeSummary(assumptions);
   renderFeePanel(assumptions, scenarios);
+  renderExposureCompare(assumptions);
   renderPlanTable(assumptions, scenarios.base);
   renderMultiYearExample(assumptions, scenarios.base, scenarios);
   renderTheoryBreakdown(assumptions, scenarios.base);
+  renderOnboardingPersonalization(assumptions);
+}
+
+function renderSaleOrder(assumptions) {
+  const container = document.getElementById("saleOrderList");
+  if (!container) return;
+  const sales = assumptions.salePlan.filter((sale) => sale.saleAmount > 0);
+  if (!sales.length) {
+    container.innerHTML = `<p class="status-copy">No sales are needed at the current target concentration.</p>`;
+    return;
+  }
+  container.innerHTML = sales
+    .map((sale, index) => {
+      const isLoss = sale.gainRealized < 0;
+      return `
+        <div class="sale-order-row">
+          <span class="sale-order-rank">${index + 1}</span>
+          <div class="sale-order-info">
+            <span class="sale-order-ticker">${sale.ticker || "Unnamed position"}</span>
+            <span class="sale-order-amount">${fullMoney(sale.saleAmount)} sold</span>
+          </div>
+          <span class="sale-order-gain ${isLoss ? "is-loss" : ""}">${fullMoney(sale.gainRealized)} ${isLoss ? "loss realized" : "gain realized"}</span>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function syncBenchmarkAvailability() {
@@ -426,10 +574,6 @@ function syncBenchmarkAvailability() {
 }
 
 function syncLabels(assumptions) {
-  const tickerText = assumptions.tickers.length === 1 ? assumptions.tickers[0] : `${assumptions.tickers.length} concentrated positions`;
-  document.getElementById("headline").textContent =
-    `How long until ${tickerText} can be diversified tax-neutrally?`;
-
   ids.forEach((id) => {
     const output = document.getElementById(`${id}Value`);
     if (!output) return;
@@ -437,7 +581,7 @@ function syncLabels(assumptions) {
 
     if (["otherAssets", "overlayAllocation"].includes(id)) {
       output.textContent = money(value);
-    } else if (["mgmtFee", "financingSpread"].includes(id)) {
+    } else if (["financingSpread", "dynamicHedging"].includes(id)) {
       output.textContent = `${value.toFixed(2)}%`;
     } else {
       output.textContent = pct(value, 0);
@@ -449,10 +593,20 @@ function syncLabels(assumptions) {
 }
 
 function renderPortfolioComposition(assumptions) {
+  const overlayAllocation = assumptions.sleeves.overlay.allocation;
+  const unallocatedOtherAssets = Math.max(assumptions.otherAssets - overlayAllocation, 0);
   document.getElementById("portfolioComposition").innerHTML = `
     <div><span>Concentrated tickers</span><strong>${money(assumptions.totalConcentratedValue)}</strong></div>
     <div><span>Other assets</span><strong>${money(assumptions.otherAssets)}</strong></div>
     <div class="wide-fact total-fact"><span>Total portfolio</span><strong>${money(assumptions.portfolioValue)} · ${pct(assumptions.currentConcentration * 100, 0)} concentrated today</strong></div>
+    <div><span>Other assets &rarr; Overlay</span><strong>${money(overlayAllocation)}</strong></div>
+    <div><span>Other assets &rarr; not enrolled</span><strong>${money(unallocatedOtherAssets)}</strong></div>
+    <p class="composition-note">
+      Concentrated tickers fund DEALS Exchange directly - Exchange draws nothing from Other
+      Portfolio Assets. Only the Overlay Allocation slider below enrolls a slice of Other
+      Portfolio Assets; the rest stays as ordinary holdings, available as cash and untouched
+      by either sleeve.
+    </p>
   `;
 }
 
@@ -532,7 +686,7 @@ function renderMetrics(assumptions, scenarios) {
     {
       label: "Est. annual cost",
       value: fullMoney(assumptions.annualCosts),
-      note: `${assumptions.mgmtFeeRate * 100 > 0 ? `${(assumptions.mgmtFeeRate * 100).toFixed(2)}% fee` : "No fee"} on ${money(assumptions.managedAssets)} + financing on ${money(assumptions.sleeveShortDollars)} short book`,
+      note: `${(assumptions.mgmtFeeRate * 100).toFixed(2)}% fee on ${money(assumptions.managedAssets)} + financing${assumptions.dynamicHedgingEnabled ? " and dynamic hedging" : ""} on ${money(assumptions.sleeveShortDollars)} short book`,
     },
   ];
 
@@ -549,6 +703,16 @@ function renderMetrics(assumptions, scenarios) {
     .join("");
 }
 
+function lossLotSentence(assumptions) {
+  const lossSales = assumptions.salePlan.filter((sale) => sale.gainRealized < 0);
+  if (!lossSales.length) return "";
+  const totalLoss = lossSales.reduce((sum, sale) => sum + sale.gainRealized, 0);
+  const names = lossSales.map((sale) => sale.ticker || "an unnamed position").join(", ");
+  const verb = lossSales.length === 1 ? "sells" : "sell";
+  const pronoun = lossSales.length === 1 ? "its" : "their combined";
+  return `${names} ${verb} first in that order, and ${pronoun} ${fullMoney(Math.abs(totalLoss))} loss is already reducing the gain that needs to be offset. `;
+}
+
 function renderNarrative(assumptions, scenarios) {
   const base = scenarios.base;
   const currentPct = pct(assumptions.currentConcentration * 100, 0);
@@ -562,7 +726,8 @@ function renderNarrative(assumptions, scenarios) {
   document.getElementById("plainEnglish").textContent =
     `${names} currently total ${fullMoney(assumptions.totalConcentratedValue)}, or ${currentPct} of the portfolio. ` +
     `To get to ${targetPct}, the client would sell about ${fullMoney(assumptions.plannedSale)} using a tax-smart order that sells lower-gain positions first. ` +
-    `Those sales realize about ${fullMoney(assumptions.gainToOffset)} of gains that need losses to be tax-neutral. ` +
+    lossLotSentence(assumptions) +
+    `Those sales realize about ${fullMoney(assumptions.gainToOffset)} of net gain that needs losses to be tax-neutral. ` +
     sleeveSentence +
     `Reinvesting proceeds toward the ${assumptions.benchmark.label} benchmark, the base estimate is about ${formatYears(base.years)}.`;
 
@@ -590,11 +755,27 @@ function renderFeePanel(assumptions, scenarios) {
     </div>
   `;
 
+  const dynamicHedgingLine = assumptions.dynamicHedgingEnabled
+    ? `
+      <div class="fee-line">
+        <span>Dynamic hedging</span>
+        <small>${(assumptions.dynamicHedgingRate * 100).toFixed(2)}% on ${money(shortBook)} combined short book</small>
+        <strong>${fullMoney(assumptions.annualDynamicHedging)}/yr</strong>
+      </div>
+    `
+    : `
+      <div class="fee-line fee-line-disabled">
+        <span>Dynamic hedging</span>
+        <small>Not included - enable it in Costs &amp; Fees to model this cost</small>
+        <strong>$0/yr</strong>
+      </div>
+    `;
+
   document.getElementById("feePanel").innerHTML = `
     <div class="fee-lines">
       <div class="fee-line">
         <span>Management fee</span>
-        <small>${(assumptions.mgmtFeeRate * 100).toFixed(2)}% on ${money(assumptions.managedAssets)} managed (Exchange + Overlay)</small>
+        <small>TPMM ${TPMM_FEE_PCT.toFixed(2)}% + DiversiFi ${assumptions.feeTier.advisoryFee.toFixed(2)}% on ${money(assumptions.managedAssets)} managed</small>
         <strong>${fullMoney(assumptions.annualMgmtFee)}/yr</strong>
       </div>
       <div class="fee-line">
@@ -602,6 +783,7 @@ function renderFeePanel(assumptions, scenarios) {
         <small>${(assumptions.financingRate * 100).toFixed(2)}% on ${money(shortBook)} combined short book</small>
         <strong>${fullMoney(assumptions.annualFinancing)}/yr</strong>
       </div>
+      ${dynamicHedgingLine}
       <div class="fee-line fee-line-total">
         <span>Total estimated cost</span>
         <small>${formatYears(base.years)} base timeline ≈ ${fullMoney(cumulativeCosts)}</small>
@@ -614,10 +796,20 @@ function renderFeePanel(assumptions, scenarios) {
       ${compareRow("Net benefit", netBenefit, netBenefit >= 0 ? "net-fill" : "cost-fill")}
     </div>
     <p class="fee-note">
-      Financing rates at Schwab follow the firm's negotiated rate, partially offset by
-      Schwab's Short-Interest Rebate Program (SIRP). Both rates here are editable
-      assumptions, not Quantinno's fee schedule.
+      Management fee follows DiversiFi's published Quantinno fee schedule (TPMM 0.45% + a
+      DiversiFi advisory fee that steps down as managed assets grow) and isn't user-editable.
+      Financing and dynamic hedging rates are editable assumptions, not Quantinno's fee schedule.
     </p>
+  `;
+}
+
+function renderManagementFeeSummary(assumptions) {
+  const el = document.getElementById("managementFeeSummary");
+  if (!el) return;
+  el.innerHTML = `
+    <div><span>TPMM fee (Quantinno)</span><strong>${TPMM_FEE_PCT.toFixed(2)}%</strong></div>
+    <div><span>DiversiFi fee (tiered)</span><strong>${assumptions.feeTier.advisoryFee.toFixed(2)}%</strong></div>
+    <div class="wide-fact total-fact"><span>Total management fee</span><strong>${(assumptions.mgmtFeeRate * 100).toFixed(2)}% on ${money(assumptions.managedAssets)} managed</strong></div>
   `;
 }
 
@@ -768,8 +960,20 @@ function verticalSegment(segment) {
 
 function renderPlanTable(assumptions, scenario) {
   const planTable = document.getElementById("planTable");
+  const stressInput = document.getElementById("stressShock");
+  const shockPct = stressInput ? Number(stressInput.value) / 100 : 0;
+  const shockLabel = `${shockPct >= 0 ? "+" : ""}${Math.round(shockPct * 100)}%`;
+  const stressHeader = document.getElementById("stressColumnHeader");
+  if (stressHeader) stressHeader.textContent = `If ${shockLabel}`;
+  const stressCaption = document.getElementById("stressCaption");
+  if (stressCaption) {
+    stressCaption.textContent =
+      `"Remaining" is the base-case plan. "If ${shockLabel}" shows what that same remaining position would be worth if the stock ` +
+      `moved ${shockLabel} from today's price by that year - the concentration risk still being carried while losses accumulate.`;
+  }
+
   if (scenario.annualLosses <= 0 && assumptions.gainToOffset > 0) {
-    planTable.innerHTML = `<tr class="empty-state-row"><td colspan="4">No losses are being generated at the current exposure settings, so this plan can't make progress. Raise Exchange or Overlay gross exposure above 100/0 to model loss-harvesting capacity.</td></tr>`;
+    planTable.innerHTML = `<tr class="empty-state-row"><td colspan="5">No losses are being generated at the current exposure settings, so this plan can't make progress. Raise Exchange or Overlay gross exposure above 100/0 to model loss-harvesting capacity.</td></tr>`;
     return;
   }
   // Cap the table at the year the transition actually finishes instead of
@@ -785,6 +989,7 @@ function renderPlanTable(assumptions, scenario) {
           <td>${fullMoney(row.cumulativeLosses)}</td>
           <td>${fullMoney(row.cumulativeSale)}</td>
           <td>${fullMoney(row.remainingStock)} <span>${pct(row.concentration * 100, 0)}</span></td>
+          <td>${fullMoney(row.remainingStock * (1 + shockPct))}</td>
         </tr>
       `,
     )
@@ -1120,6 +1325,47 @@ function harvestRow(label, amount, action) {
   `;
 }
 
+function renderOnboardingPersonalization(assumptions) {
+  const el = document.getElementById("onboardingPersonalized");
+  if (!el) return;
+
+  const activeSleeves = assumptions.activeSleeves;
+  const REG_T_CAP_LONG = 145;
+  const REG_T_CAP_SHORT = 45;
+  const overLeveraged = activeSleeves.filter(
+    (sleeve) => sleeve.exposure.long > REG_T_CAP_LONG || sleeve.exposure.short > REG_T_CAP_SHORT,
+  );
+  const underMinimum = activeSleeves.filter(
+    (sleeve) => sleeve.marginRequired && sleeve.allocation < PORTFOLIO_MARGIN_MINIMUM,
+  );
+  const label = exposureLabel(assumptions);
+
+  if (!overLeveraged.length) {
+    el.innerHTML = `
+      <div class="callout-block ok">
+        <strong>Your current plan (${label}) stays within the ${REG_T_CAP_LONG}/${REG_T_CAP_SHORT} Reg-T cap.</strong>
+        No Portfolio Margin approval is needed to run this plan as configured.
+      </div>
+    `;
+    return;
+  }
+
+  const names = overLeveraged.map((sleeve) => sleeve.label).join(" and ");
+  let minimumNote = "";
+  if (underMinimum.length) {
+    const subject = underMinimum.length === 1 ? "this sleeve isn't" : "these sleeves aren't";
+    minimumNote =
+      ` Note: ${underMinimum.map((sleeve) => `${sleeve.label} is allocated ${fullMoney(sleeve.allocation)}`).join(" and ")}, ` +
+      `below the ${fullMoney(PORTFOLIO_MARGIN_MINIMUM)} Portfolio Margin account minimum - ${subject} yet eligible at ${underMinimum.length === 1 ? "its" : "their"} current size.`;
+  }
+  el.innerHTML = `
+    <div class="callout-block warn">
+      <strong>Your current plan (${label}) uses leverage above the ${REG_T_CAP_LONG}/${REG_T_CAP_SHORT} Reg-T cap on ${names}.</strong>
+      Start firm-level Portfolio Margin approval with the Schwab RM now - it can take several days.${minimumNote}
+    </div>
+  `;
+}
+
 function renderPositions() {
   positionsBody.innerHTML = positions
     .map((position) => {
@@ -1248,6 +1494,8 @@ function resetAssumptions() {
     inputs[id].value = value;
     syncPairedSlider(id);
   });
+  dynamicHedgingEnabledCheckbox.checked = true;
+  syncDynamicHedgingInputsDisabled();
   positions = [
     { id: crypto.randomUUID(), ticker: "PLTR", shares: 20000, price: 100, basis: 400000 },
     { id: crypto.randomUUID(), ticker: "GOOGL", shares: 5000, price: 200, basis: 600000 },
@@ -1255,6 +1503,7 @@ function resetAssumptions() {
   lastUpdatedTickers = new Set();
   refreshPriceStatus();
   if (scenarioSelect) scenarioSelect.value = "";
+  setupExposureCompareSelectors();
   renderPositions();
   updateOutputs();
 }
@@ -1388,6 +1637,7 @@ function captureCurrentScenario() {
   ids.forEach((id) => {
     snapshot[id] = inputs[id].value;
   });
+  snapshot.dynamicHedgingEnabled = dynamicHedgingEnabledCheckbox.checked;
   snapshot.positions = positions.map(({ ticker, shares, price, basis }) => ({ ticker, shares, price, basis }));
   return snapshot;
 }
@@ -1398,6 +1648,8 @@ function applyScenario(snapshot) {
     inputs[id].value = snapshot[id];
     syncPairedSlider(id);
   });
+  dynamicHedgingEnabledCheckbox.checked = snapshot.dynamicHedgingEnabled !== false;
+  syncDynamicHedgingInputsDisabled();
   positions = (snapshot.positions || []).map((position) => ({ id: crypto.randomUUID(), ...position }));
   if (!positions.length) {
     positions = [{ id: crypto.randomUUID(), ticker: "MSFT", shares: 1000, price: 400, basis: 200000 }];
@@ -1479,6 +1731,11 @@ ids.forEach((id) =>
   }),
 );
 pairedSliderIds.forEach(wirePairedSlider);
+dynamicHedgingEnabledCheckbox.addEventListener("change", () => {
+  syncDynamicHedgingInputsDisabled();
+  markScenarioDirty();
+  updateOutputs();
+});
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));
 });
@@ -1512,6 +1769,21 @@ positionsBody.addEventListener("click", (event) => {
   if (event.target.dataset.action !== "remove") return;
   const row = event.target.closest("tr");
   if (row) removePosition(row.dataset.id);
+});
+
+// The exposure comparison is an exploratory "what if" - it deliberately
+// doesn't call markScenarioDirty() or touch the live inputs, since it isn't
+// part of the saved client scenario.
+["compareExchangeExposure", "compareOverlayExposure"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", () => renderExposureCompare(getAssumptions()));
+});
+
+const stressShockSlider = document.getElementById("stressShock");
+const stressShockValue = document.getElementById("stressShockValue");
+stressShockSlider.addEventListener("input", () => {
+  const value = Number(stressShockSlider.value);
+  stressShockValue.textContent = `${value >= 0 ? "+" : ""}${value}%`;
+  updateOutputs();
 });
 
 const initialStoredKey = storedFinnhubKey();

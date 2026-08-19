@@ -1,21 +1,24 @@
 :root {
+  /* DiversiFi Capital brand palette (shared with the DEALS deck and the
+     other DFi tools) - same token names this file already used throughout,
+     repointed to DFi's colors so every existing rule stays intact. */
   color-scheme: light;
-  --ink: #08292f;
-  --muted: #62777c;
-  --line: #cde4e8;
-  --paper: #f6fbfb;
+  --ink: #0f172a;
+  --muted: #67718a;
+  --line: #e3e8f2;
+  --paper: #f6f8fc;
   --panel: #ffffff;
-  --navy: #08292f;
-  --blue: #88cfd9;
-  --cyan: #09bdcb;
-  --teal: #0a9eaa;
-  --purple: #4d6c74;
-  --red: #cf5b4b;
-  --gold: #e2a83b;
-  --blue-soft: #def4f9;
-  --cyan-soft: #e7f5f6;
-  --purple-soft: #eef4f4;
-  --shadow: 0 18px 48px rgba(8, 41, 47, 0.13);
+  --navy: #0c2e9c;
+  --blue: #1b4eef;
+  --cyan: #32d4ea;
+  --teal: #00a5a7;
+  --purple: #67718a;
+  --red: #c0392b;
+  --gold: #b7791f;
+  --blue-soft: #f2f5fd;
+  --cyan-soft: #edfaf4;
+  --purple-soft: #f2f5fd;
+  --shadow: 0 1px 3px rgba(12, 46, 156, 0.06), 0 8px 24px rgba(12, 46, 156, 0.05);
 }
 
 * {
@@ -28,7 +31,7 @@ body {
   color: var(--ink);
   background: var(--paper);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Avenir Next", "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial,
     sans-serif;
 }
 
@@ -36,6 +39,69 @@ button,
 input,
 select {
   font: inherit;
+}
+
+.dfi-topbar {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 70%, #2b63ff 100%);
+  color: #ffffff;
+  padding: 14px 0;
+}
+
+.dfi-topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.wordmark .logo {
+  height: 34px;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.wordmark .name {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.wordmark .name small {
+  display: block;
+  margin-top: 3px;
+  color: var(--cyan);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dfi-topbar-button {
+  min-height: 38px;
+  padding: 0 16px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.dfi-topbar-button:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .app-shell {
@@ -142,7 +208,8 @@ h1 {
   font-size: 0.94rem;
 }
 
-label {
+label,
+.input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 72px;
   gap: 8px 12px;
@@ -150,6 +217,33 @@ label {
   color: var(--muted);
   font-size: 0.88rem;
   font-weight: 750;
+}
+
+.fee-schedule-block {
+  margin-top: 16px;
+}
+
+.fee-schedule-block .profile-facts {
+  margin-top: 10px;
+}
+
+.dynamic-hedging-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.dynamic-hedging-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.input-row:has(#dynamicHedgingEnabled:not(:checked)) .slider-with-number,
+.input-row:has(#dynamicHedgingEnabled:not(:checked)) output {
+  opacity: 0.45;
 }
 
 .label-heading {
@@ -310,6 +404,15 @@ input[type="range"] {
 .profile-facts .total-fact {
   background: var(--cyan-soft);
   border-color: var(--cyan);
+}
+
+.composition-note {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.4;
 }
 
 .group-note {
@@ -1341,6 +1444,169 @@ output {
   line-height: 1.4;
 }
 
+.sale-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sale-order-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+
+.sale-order-row:last-child {
+  border-bottom: none;
+}
+
+.sale-order-rank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--cyan-soft);
+  color: var(--teal);
+  font-weight: 850;
+  font-size: 0.76rem;
+}
+
+.sale-order-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.sale-order-ticker {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sale-order-amount {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sale-order-gain {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sale-order-gain.is-loss {
+  color: var(--red);
+}
+
+.compare-selects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.exposure-compare-body {
+  display: grid;
+  gap: 8px;
+}
+
+.compare-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 10px 12px;
+  background: #f7faff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.compare-row span {
+  grid-column: 1 / -1;
+  color: var(--purple);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.compare-row strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-row small {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-delta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.stress-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.stress-control label {
+  white-space: nowrap;
+}
+
+.stress-control input[type="range"] {
+  width: 110px;
+  accent-color: var(--cyan);
+}
+
+.stress-control output {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 850;
+  min-width: 34px;
+}
+
+.callout-block {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.callout-block strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+
+.callout-block.ok {
+  background: var(--cyan-soft);
+  border: 1px solid var(--cyan);
+}
+
+.callout-block.warn {
+  background: #fdf3e4;
+  border: 1px solid var(--gold);
+}
+
 .onboard-flow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1972,6 +2238,7 @@ td span {
 @media print {
   .control-panel,
   .text-button,
+  .dfi-topbar-button,
   .view-tabs {
     display: none;
   }
