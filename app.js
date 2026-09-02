@@ -192,7 +192,6 @@ let lastPriceUpdateAt = "";
 // (Other/Overlay allocation snap to $250K steps otherwise).
 const pairedSliderIds = [
   "totalInvestableAssets",
-  "federalCapGainsRate",
   "stateCapGainsRate",
   "overlayAllocation",
   "fedFundsRate",
@@ -738,7 +737,6 @@ function syncLabels(assumptions) {
       output.textContent = money(value);
     } else if (
       [
-        "federalCapGainsRate",
         "stateCapGainsRate",
         "fedFundsRate",
         "financingSpread",
@@ -1091,11 +1089,19 @@ function drawTransitionBlocks(container, assumptions, scenario) {
   const sleeveShort = assumptions.sleeveShortDollars;
   const maxYear = Math.min(12, Math.max(1, Math.ceil(scenario.years || 1)));
   const points = selectedEquationPoints(scenario.path, maxYear);
-  const maxLongSide = Math.max(
+  // The long and short zones render at the same pixel height (see
+  // .equation-column in styles.css), so they need one shared dollar scale.
+  // Normalizing the short bar against its own value (old maxShortSide =
+  // sleeveShort) always filled it to ~100% regardless of size, making a
+  // small short book look bigger than a much larger long extension scaled
+  // against the whole taxable-portfolio stack.
+  const maxSide = Math.max(
     ...points.map((point) => currentCore + point.cumulativeSale + point.remainingStock + sleeveLong),
+    sleeveShort,
     1,
   );
-  const maxShortSide = Math.max(sleeveShort, 1);
+  const maxLongSide = maxSide;
+  const maxShortSide = maxSide;
 
   container.innerHTML = `
     <div class="transition-axis-key" aria-hidden="true">
@@ -1649,7 +1655,7 @@ function renderPositions() {
             <input class="table-input ticker-input position-ticker-input" data-field="ticker" value="${position.ticker}" maxlength="8" />
             <div class="position-card-value">
               <strong>${fullMoney(value)}</strong>
-              <span>${fullMoney(gain)} ${pct(gainRatio(position) * 100, 0)}</span>
+              <span>Gain ${fullMoney(gain)} (${pct(gainRatio(position) * 100, 0)})</span>
             </div>
             <button class="row-button" type="button" data-action="remove" aria-label="Remove ${position.ticker}">×</button>
           </div>
@@ -1660,12 +1666,18 @@ function renderPositions() {
             </label>
             <label>
               <span>Price</span>
-              <input class="table-input numeric-input ${isLiveUpdated ? "price-live-updated" : ""}" data-field="price" type="number" min="0" step="0.01" value="${position.price}" />
+              <span class="currency-input">
+                <span class="currency-symbol" aria-hidden="true">$</span>
+                <input class="table-input numeric-input ${isLiveUpdated ? "price-live-updated" : ""}" data-field="price" type="number" min="0" step="0.01" value="${position.price}" />
+              </span>
               ${isLiveUpdated ? '<small class="live-price-note">Live updated</small>' : ""}
             </label>
             <label>
               <span>Cost Basis</span>
-              <input class="table-input numeric-input" data-field="basis" type="number" min="0" step="1000" value="${position.basis}" />
+              <span class="currency-input">
+                <span class="currency-symbol" aria-hidden="true">$</span>
+                <input class="table-input numeric-input" data-field="basis" type="number" min="0" step="1000" value="${position.basis}" />
+              </span>
             </label>
           </div>
           <div class="position-allocation">
@@ -1676,12 +1688,18 @@ function renderPositions() {
             <div class="position-allocation-fields">
               <label class="alloc-exchange-field">
                 <span>Exchange</span>
-                <input class="table-input numeric-input" data-field="exchangeAllocated" type="number" min="0" max="${value}" step="1000" value="${exchangeAllocated}" />
+                <span class="currency-input">
+                  <span class="currency-symbol" aria-hidden="true">$</span>
+                  <input class="table-input numeric-input" data-field="exchangeAllocated" type="number" min="0" max="${value}" step="1000" value="${exchangeAllocated}" />
+                </span>
                 <small>${pct(exchangePct, 0)}</small>
               </label>
               <label class="alloc-overlay-field">
                 <span>Overlay</span>
-                <input class="table-input numeric-input" data-field="overlayAllocated" type="number" min="0" max="${value}" step="1000" value="${overlayAllocated}" />
+                <span class="currency-input">
+                  <span class="currency-symbol" aria-hidden="true">$</span>
+                  <input class="table-input numeric-input" data-field="overlayAllocated" type="number" min="0" max="${value}" step="1000" value="${overlayAllocated}" />
+                </span>
                 <small>${pct(overlayPct, 0)}</small>
               </label>
             </div>

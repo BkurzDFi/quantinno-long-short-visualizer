@@ -2269,8 +2269,8 @@ output {
 .equation-column {
   position: relative;
   display: grid;
-  grid-template-rows: auto 150px 1px 68px;
-  min-height: 250px;
+  grid-template-rows: auto 150px 1px 150px;
+  min-height: 332px;
   padding: 10px;
   background: #f2f7fd;
   border: 1px solid #d6e2f0;
@@ -2502,6 +2502,33 @@ td span {
   font-weight: 750;
 }
 
+.currency-input {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.currency-input .currency-symbol {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.currency-input input {
+  padding-left: 21px;
+}
+
+.slider-with-number .currency-input {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  flex: none;
+}
+
 .price-live-updated {
   border-color: #18a999;
   background: #effcf9;
@@ -2656,8 +2683,8 @@ td span {
   }
 
   .equation-column {
-    grid-template-rows: auto 128px 1px 54px;
-    min-height: 218px;
+    grid-template-rows: auto 128px 1px 128px;
+    min-height: 292px;
   }
 
   .equation-summary {
