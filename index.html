@@ -13,11 +13,26 @@
           <img src="assets/dfi_logo.png" alt="DiversiFi Capital" class="logo" />
           <div class="name">DiversiFi Capital<small>Quantinno DEALS Transition Planner</small></div>
         </div>
-        <button id="printButton" class="dfi-topbar-button" type="button">Print Report</button>
+        <div class="dfi-topbar-actions">
+          <div class="dfi-topbar-scenario">
+            <select
+              id="scenarioSelect"
+              class="dfi-topbar-select"
+              aria-label="Saved client scenario"
+              title="Save the current inputs and positions as a named client scenario, then switch between clients from this dropdown."
+            >
+              <option value="">— Current (unsaved) —</option>
+            </select>
+            <button id="saveScenarioButton" class="dfi-topbar-button" type="button">Save As…</button>
+            <button id="deleteScenarioButton" class="dfi-topbar-button" type="button">Delete</button>
+          </div>
+          <button id="printButton" class="dfi-topbar-button" type="button">Print Report</button>
+        </div>
       </div>
+      <p class="dfi-topbar-status" id="scenarioStatus"></p>
     </header>
     <main class="app-shell">
-      <aside class="control-panel" aria-label="Client assumptions">
+      <section class="dashboard" aria-label="Transition dashboard">
         <div class="brand-block">
           <span class="kicker">Client planning view</span>
           <h1>Quantinno Tax-Neutral Transition Planner</h1>
@@ -27,21 +42,65 @@
           </p>
         </div>
 
-        <section class="input-group compact" id="scenarioManager">
-          <div class="section-title">
-            <h2>Client Scenarios</h2>
+        <nav class="view-tabs" aria-label="Planning views">
+          <button class="tab-button" type="button" data-tab="dataInput">Data Input</button>
+          <button class="tab-button active" type="button" data-tab="summary">Planning Summary</button>
+          <button class="tab-button" type="button" data-tab="scenario">Multi-Year Example</button>
+          <button class="tab-button" type="button" data-tab="theory">Strategy Mechanics</button>
+          <button class="tab-button" type="button" data-tab="onboarding">Onboarding Steps</button>
+        </nav>
+
+        <div class="tab-panel" id="dataInputView">
+          <div class="data-input-grid">
+        <section class="input-group" id="positionsPanel">
+          <div class="panel-heading">
+            <div>
+              <span class="kicker">Concentrated positions</span>
+              <h3>Tickers, Shares, Price, and Basis</h3>
+            </div>
+            <div class="button-row">
+              <button id="refreshPricesButton" class="secondary-button" type="button">Refresh Prices</button>
+              <button id="addPositionButton" class="secondary-button" type="button">Add Ticker</button>
+              <button id="bulkImportToggle" class="secondary-button" type="button">Bulk Import</button>
+            </div>
           </div>
-          <label>
-            <span class="label-heading">Saved scenario</span>
-            <select id="scenarioSelect" class="select-input">
-              <option value="">— Current (unsaved) —</option>
-            </select>
-          </label>
-          <div class="button-row">
-            <button id="saveScenarioButton" class="secondary-button" type="button">Save As…</button>
-            <button id="deleteScenarioButton" class="secondary-button" type="button">Delete</button>
+          <div id="bulkImportPanel" class="bulk-import-panel" hidden>
+            <p class="status-copy">
+              Paste rows copied straight from a DEALS Portfolio Holdings Template export - Ticker, Quantity, Market Value,
+              and Cost Basis columns, one row per tax lot. Extra columns, blank rows, and header/title rows are ignored.
+              Lots for the same ticker are summed automatically. Importing replaces the ticker rows below.
+            </p>
+            <textarea
+              id="bulkImportInput"
+              class="bulk-import-textarea"
+              rows="6"
+              placeholder="MU&#9;74&#9;62882.24&#9;5694.30&#10;MU&#9;24&#9;20394.24&#9;1846.80&#10;..."
+            ></textarea>
+            <div class="button-row">
+              <button id="bulkImportApply" class="secondary-button" type="button">Import</button>
+              <button id="bulkImportCancel" class="secondary-button" type="button">Cancel</button>
+            </div>
+            <p id="bulkImportStatus" class="status-copy"></p>
           </div>
-          <p class="status-copy" id="scenarioStatus">Save the current inputs and positions as a named client scenario, then switch between clients from this dropdown.</p>
+          <div class="finnhub-controls">
+            <label class="key-label" for="finnhubApiKey">Finnhub API Key</label>
+            <input id="finnhubApiKey" class="key-input" type="password" placeholder="Paste key to enable auto prices" autocomplete="off" />
+            <button id="saveFinnhubKeyButton" class="secondary-button" type="button">Save Key</button>
+            <button id="clearFinnhubKeyButton" class="secondary-button" type="button">Clear</button>
+          </div>
+          <p id="priceStatus" class="status-copy">Prices can be entered manually or refreshed from Finnhub when the local API key is configured.</p>
+          <p class="status-copy">
+            Split each position between the two sleeves below as needed. Exchange sells its allocated amount down
+            over time; Overlay holds its allocated amount as collateral and never sells it. Whatever's left
+            unallocated stays held too - every dollar in this table keeps counting as concentrated until Exchange
+            actually sells it.
+          </p>
+          <div id="positionsBody" class="position-cards"></div>
+          <div id="positionsTotals" class="position-totals-card"></div>
+          <div class="button-row position-bulk-actions">
+            <button id="allocateAllExchangeButton" class="secondary-button" type="button">Allocate All to Exchange</button>
+            <button id="clearAllocationsButton" class="secondary-button" type="button">Clear Allocations</button>
+          </div>
         </section>
 
         <section class="input-group">
@@ -53,61 +112,80 @@
           </div>
           <label>
             <span class="label-heading">
-              Other Portfolio Assets
+              Total Investable Assets
               <button
                 type="button"
                 class="help-dot"
-                aria-label="Other Portfolio Assets help"
-                data-tooltip="Everything the client owns besides the concentrated tickers below. Total portfolio = concentrated tickers + other assets, so it updates automatically as tickers, shares, or prices change."
-                title="Everything the client owns besides the concentrated tickers below. Total portfolio = concentrated tickers + other assets, so it updates automatically as tickers, shares, or prices change."
+                aria-label="Total Investable Assets help"
+                data-tooltip="Everything the client owns, including the concentrated tickers below. The app automatically subtracts the concentrated tickers table to figure out 'other assets' for Overlay enrollment and the rest of the calculations - you don't need to do that math yourself."
+                title="Everything the client owns, including the concentrated tickers below. The app automatically subtracts the concentrated tickers table to figure out 'other assets' for Overlay enrollment and the rest of the calculations - you don't need to do that math yourself."
               >
                 ?
               </button>
             </span>
             <div class="slider-with-number">
-              <input id="otherAssetsSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
-              <input id="otherAssets" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Other Portfolio Assets, exact dollar amount" />
+              <input id="totalInvestableAssetsSlider" type="range" min="0" max="15000000" value="5000000" step="250000" />
+              <input id="totalInvestableAssets" class="slider-number" type="number" min="0" max="100000000" step="1000" value="5000000" aria-label="Total Investable Assets, exact dollar amount" />
             </div>
             <div id="portfolioComposition" class="profile-facts"></div>
           </label>
           <label>
             <span class="label-heading">
-              Target Concentration
+              Federal Capital Gains Rate
               <button
                 type="button"
                 class="help-dot"
-                aria-label="Target Concentration help"
-                data-tooltip="Desired final percent in the concentrated stock. 0% matches DEALS Exchange's actual full-diversification end state; higher values model a partial sell-down instead. Lower values increase planned sales and usually increase losses required."
-                title="Desired final percent in the concentrated stock. 0% matches DEALS Exchange's actual full-diversification end state; higher values model a partial sell-down instead. Lower values increase planned sales and usually increase losses required."
+                aria-label="Federal Capital Gains Rate help"
+                data-tooltip="Federal long-term capital gains rate on realized sale gains. Combines with State and NIIT below into the combined rate used for Tax if sold today."
+                title="Federal long-term capital gains rate on realized sale gains. Combines with State and NIIT below into the combined rate used for Tax if sold today."
               >
                 ?
               </button>
             </span>
             <div class="slider-with-number">
-              <input id="targetConcentrationSlider" type="range" min="0" max="40" value="0" step="1" />
-              <input id="targetConcentration" class="slider-number" type="number" min="0" max="100" step="0.5" value="0" aria-label="Target Concentration, exact percent" />
+              <input id="federalCapGainsRateSlider" type="range" min="0" max="37" value="20" step="1" />
+              <input id="federalCapGainsRate" class="slider-number" type="number" min="0" max="100" step="0.1" value="20" aria-label="Federal Capital Gains Rate, exact percent" />
             </div>
-            <output id="targetConcentrationValue">0%</output>
+            <output id="federalCapGainsRateValue">20.00%</output>
           </label>
           <label>
             <span class="label-heading">
-              Capital Gains Tax Rate
+              State Capital Gains Rate
               <button
                 type="button"
                 class="help-dot"
-                aria-label="Capital Gains Tax Rate help"
-                data-tooltip="Blended tax rate on realized gains. It directly changes the Tax if sold today estimate."
-                title="Blended tax rate on realized gains. It directly changes the Tax if sold today estimate."
+                aria-label="State Capital Gains Rate help"
+                data-tooltip="State-level tax rate on realized sale gains - varies widely by state (0% in states with no income tax, into the low teens in others). Set to 0% for no-income-tax states."
+                title="State-level tax rate on realized sale gains - varies widely by state (0% in states with no income tax, into the low teens in others). Set to 0% for no-income-tax states."
               >
                 ?
               </button>
             </span>
             <div class="slider-with-number">
-              <input id="taxRateSlider" type="range" min="10" max="45" value="25" step="1" />
-              <input id="taxRate" class="slider-number" type="number" min="0" max="100" step="0.5" value="25" aria-label="Capital Gains Tax Rate, exact percent" />
+              <input id="stateCapGainsRateSlider" type="range" min="0" max="14" value="0" step="0.5" />
+              <input id="stateCapGainsRate" class="slider-number" type="number" min="0" max="100" step="0.1" value="0" aria-label="State Capital Gains Rate, exact percent" />
             </div>
-            <output id="taxRateValue">25%</output>
+            <output id="stateCapGainsRateValue">0.00%</output>
           </label>
+          <div class="input-row">
+            <span class="label-heading">
+              <label class="dynamic-hedging-toggle" for="niitEnabled">
+                <input type="checkbox" id="niitEnabled" checked />
+                Net Investment Income Tax
+              </label>
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Net Investment Income Tax help"
+                data-tooltip="The 3.8% federal NIIT surtax on investment income above the statutory threshold. Applies to most clients concentrated enough to need this strategy - uncheck if the client's income falls under the threshold."
+                title="The 3.8% federal NIIT surtax on investment income above the statutory threshold. Applies to most clients concentrated enough to need this strategy - uncheck if the client's income falls under the threshold."
+              >
+                ?
+              </button>
+            </span>
+            <output id="niitRateValue">3.80%</output>
+          </div>
+          <div id="capGainsRateSummary" class="profile-facts"></div>
         </section>
 
         <section class="input-group">
@@ -115,9 +193,9 @@
             <h2>Strategy Setup</h2>
           </div>
           <p class="group-note">
-            DEALS Exchange and DEALS Overlay run at the same time. Exchange is
-            funded by your concentrated tickers; Overlay puts a slice of your
-            other assets to work. Both harvest losses toward the transition.
+            DEALS Exchange transitions your concentrated tickers automatically.
+            Overlay activates on its own once a position above is allocated to
+            it; optionally enroll a slice of your other assets below too.
           </p>
 
           <div class="sleeve-heading exchange-heading">
@@ -152,51 +230,60 @@
 
           <div class="sleeve-heading overlay-heading">
             <span class="sleeve-badge">Overlay</span>
-            DEALS Overlay · other assets
+            <span class="sleeve-heading-label">DEALS Overlay · other assets</span>
+            <label class="overlay-toggle" for="overlayEnabled">
+              <input type="checkbox" id="overlayEnabled" />
+              Also enroll other assets
+            </label>
           </div>
-          <label>
-            <span class="label-heading">
-              Overlay Allocation
-              <button
-                type="button"
-                class="help-dot"
-                aria-label="Overlay Allocation help"
-                data-tooltip="How much of your Other Portfolio Assets to enroll in DEALS Overlay as collateral. No new funding is required; existing exposures are maintained. Set to $0 to run Exchange only. Capped at your Other Portfolio Assets amount."
-                title="How much of your Other Portfolio Assets to enroll in DEALS Overlay as collateral. No new funding is required; existing exposures are maintained. Set to $0 to run Exchange only. Capped at your Other Portfolio Assets amount."
-              >
-                ?
-              </button>
-            </span>
-            <div class="slider-with-number">
-              <input id="overlayAllocationSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
-              <input id="overlayAllocation" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Overlay Allocation, exact dollar amount" />
-            </div>
-            <output id="overlayAllocationValue">$2.0M</output>
-          </label>
-          <label>
-            <span class="label-heading">
-              Overlay Gross Exposure
-              <button
-                type="button"
-                class="help-dot"
-                aria-label="Overlay Gross Exposure help"
-                data-tooltip="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
-                title="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
-              >
-                ?
-              </button>
-            </span>
-            <select id="overlayExposure" class="select-input">
-              <option value="100/0">100/0 - No extension (reference)</option>
-              <option value="115/45">115/45 - 0.7 beta</option>
-              <option value="130/30" selected>130/30 - Overlay/Core default</option>
-              <option value="140/40">140/40 - Exchange default</option>
-              <option value="145/45">145/45 - Reg-T maximum</option>
-              <option value="175/75">175/75 - Portfolio Margin</option>
-              <option value="150/100">150/100 - 0.5 beta, Portfolio Margin</option>
-              <option value="225/125">225/125 - Portfolio Margin</option>
-            </select>
-          </label>
+          <p class="sleeve-derived-note" id="overlayAllocNote">Allocate a position to Overlay above, or enroll other assets below, to activate this sleeve.</p>
+          <div id="overlayFoldout" class="overlay-foldout">
+           <div class="overlay-foldout-inner">
+            <label>
+              <span class="label-heading">
+                Overlay Allocation
+                <button
+                  type="button"
+                  class="help-dot"
+                  aria-label="Overlay Allocation help"
+                  data-tooltip="How much of your other assets (Total Investable Assets minus the concentrated tickers table) to enroll in DEALS Overlay as collateral, on top of whatever's allocated to Overlay in the positions table above. No new funding is required; existing exposures are maintained. Capped at your other assets amount."
+                  title="How much of your other assets (Total Investable Assets minus the concentrated tickers table) to enroll in DEALS Overlay as collateral, on top of whatever's allocated to Overlay in the positions table above. No new funding is required; existing exposures are maintained. Capped at your other assets amount."
+                >
+                  ?
+                </button>
+              </span>
+              <div class="slider-with-number">
+                <input id="overlayAllocationSlider" type="range" min="0" max="15000000" value="2000000" step="250000" />
+                <input id="overlayAllocation" class="slider-number" type="number" min="0" max="100000000" step="1000" value="2000000" aria-label="Overlay Allocation, exact dollar amount" />
+              </div>
+              <output id="overlayAllocationValue">$2.0M</output>
+            </label>
+            <label>
+              <span class="label-heading">
+                Overlay Gross Exposure
+                <button
+                  type="button"
+                  class="help-dot"
+                  aria-label="Overlay Gross Exposure help"
+                  data-tooltip="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
+                  title="Long/short leverage on the Overlay sleeve. Same menu as Exchange; the two sleeves can run at different exposures."
+                >
+                  ?
+                </button>
+              </span>
+              <select id="overlayExposure" class="select-input">
+                <option value="100/0">100/0 - No extension (reference)</option>
+                <option value="115/45">115/45 - 0.7 beta</option>
+                <option value="130/30" selected>130/30 - Overlay/Core default</option>
+                <option value="140/40">140/40 - Exchange default</option>
+                <option value="145/45">145/45 - Reg-T maximum</option>
+                <option value="175/75">175/75 - Portfolio Margin</option>
+                <option value="150/100">150/100 - 0.5 beta, Portfolio Margin</option>
+                <option value="225/125">225/125 - Portfolio Margin</option>
+              </select>
+            </label>
+           </div>
+          </div>
 
           <label>
             <span class="label-heading">
@@ -236,8 +323,8 @@
                 type="button"
                 class="help-dot"
                 aria-label="Management Fee help"
-                data-tooltip="DiversiFi's published fee schedule for Quantinno strategies carrying a 0.45% TPMM fee: Quantinno's 0.45% fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). Set by the fee schedule, not editable here."
-                title="DiversiFi's published fee schedule for Quantinno strategies carrying a 0.45% TPMM fee: Quantinno's 0.45% fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). Set by the fee schedule, not editable here."
+                data-tooltip="DiversiFi's published fee schedule for Quantinno strategies: Quantinno's TPMM fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). TPMM stays flat at 0.45% through Reg-T exposure (up to 145/45); above that, Portfolio Margin exposure scales it per sleeve: 0.45% x (short extension / 50%) - e.g. 175/75 is 0.675%, 225/125 is 1.125%. Set by the fee schedule, not editable here."
+                title="DiversiFi's published fee schedule for Quantinno strategies: Quantinno's TPMM fee plus a DiversiFi advisory fee that steps down as total assets under Quantinno management grow ($1M-5M: 0.80%, $5M-15M: 0.60%, $15M-35M: 0.45%, $35M+: 0.35%). TPMM stays flat at 0.45% through Reg-T exposure (up to 145/45); above that, Portfolio Margin exposure scales it per sleeve: 0.45% x (short extension / 50%) - e.g. 175/75 is 0.675%, 225/125 is 1.125%. Set by the fee schedule, not editable here."
               >
                 ?
               </button>
@@ -246,22 +333,60 @@
           </div>
           <label>
             <span class="label-heading">
-              Net Financing Spread
+              Fed Funds Rate
               <button
                 type="button"
                 class="help-dot"
-                aria-label="Net Financing Spread help"
-                data-tooltip="Annual net cost of carrying the short extension: Schwab financing at the firm's negotiated rate, minus the Short-Interest Rebate Program (SIRP) rebate. Applied to the short book only."
-                title="Annual net cost of carrying the short extension: Schwab financing at the firm's negotiated rate, minus the Short-Interest Rebate Program (SIRP) rebate. Applied to the short book only."
+                aria-label="Fed Funds Rate help"
+                data-tooltip="Reference short-term rate used to price both the long-extension borrowing cost and the short-book rebate income. Editable assumption."
+                title="Reference short-term rate used to price both the long-extension borrowing cost and the short-book rebate income. Editable assumption."
               >
                 ?
               </button>
             </span>
             <div class="slider-with-number">
-              <input id="financingSpreadSlider" type="range" min="0" max="3" value="0.3" step="0.05" />
-              <input id="financingSpread" class="slider-number" type="number" min="0" max="20" step="0.05" value="0.3" aria-label="Net Financing Spread, exact percent" />
+              <input id="fedFundsRateSlider" type="range" min="0" max="10" value="4" step="0.05" />
+              <input id="fedFundsRate" class="slider-number" type="number" min="0" max="20" step="0.05" value="4" aria-label="Fed Funds Rate, exact percent" />
             </div>
-            <output id="financingSpreadValue">0.30%</output>
+            <output id="fedFundsRateValue">4.00%</output>
+          </label>
+          <label>
+            <span class="label-heading">
+              Financing Spread
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Financing Spread help"
+                data-tooltip="Spread added to Fed Funds Rate to price the long extension's borrowing cost, and subtracted from Fed Funds Rate for the short book's rebate income (e.g. via Schwab's SIRP). Net financing scales with each sleeve's own exposure, chosen above - a bigger long extension or short book changes the dollar impact directly."
+                title="Spread added to Fed Funds Rate to price the long extension's borrowing cost, and subtracted from Fed Funds Rate for the short book's rebate income (e.g. via Schwab's SIRP). Net financing scales with each sleeve's own exposure, chosen above - a bigger long extension or short book changes the dollar impact directly."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="financingSpreadSlider" type="range" min="0" max="3" value="0.5" step="0.05" />
+              <input id="financingSpread" class="slider-number" type="number" min="0" max="20" step="0.05" value="0.5" aria-label="Financing Spread, exact percent" />
+            </div>
+            <output id="financingSpreadValue">0.50%</output>
+          </label>
+          <label>
+            <span class="label-heading">
+              Marginal Tax Rate
+              <button
+                type="button"
+                class="help-dot"
+                aria-label="Marginal Tax Rate help"
+                data-tooltip="Client's marginal ordinary-income tax rate, used to estimate the after-tax benefit of deducting the net financing cost as investment interest expense. Distinct from the Federal/State/NIIT capital gains rates in Planning Goal, which apply to realized sale gains, not financing costs."
+                title="Client's marginal ordinary-income tax rate, used to estimate the after-tax benefit of deducting the net financing cost as investment interest expense. Distinct from the Federal/State/NIIT capital gains rates in Planning Goal, which apply to realized sale gains, not financing costs."
+              >
+                ?
+              </button>
+            </span>
+            <div class="slider-with-number">
+              <input id="marginalTaxRateSlider" type="range" min="0" max="50" value="40.8" step="0.1" />
+              <input id="marginalTaxRate" class="slider-number" type="number" min="0" max="100" step="0.1" value="40.8" aria-label="Marginal Tax Rate, exact percent" />
+            </div>
+            <output id="marginalTaxRateValue">40.80%</output>
           </label>
           <div class="input-row">
             <span class="label-heading">
@@ -286,71 +411,8 @@
             <output id="dynamicHedgingValue">0.20%</output>
           </div>
         </section>
-      </aside>
-
-      <section class="dashboard" aria-label="Transition dashboard">
-        <nav class="view-tabs" aria-label="Planning views">
-          <button class="tab-button active" type="button" data-tab="summary">Planning Summary</button>
-          <button class="tab-button" type="button" data-tab="scenario">Multi-Year Example</button>
-          <button class="tab-button" type="button" data-tab="theory">Strategy Mechanics</button>
-          <button class="tab-button" type="button" data-tab="onboarding">Onboarding Steps</button>
-        </nav>
-
-        <section class="positions-panel">
-          <div class="panel-heading">
-            <div>
-              <span class="kicker">Concentrated positions</span>
-              <h3>Tickers, Shares, Price, and Basis</h3>
-            </div>
-            <div class="button-row">
-              <button id="refreshPricesButton" class="secondary-button" type="button">Refresh Prices</button>
-              <button id="addPositionButton" class="secondary-button" type="button">Add Ticker</button>
-              <button id="bulkImportToggle" class="secondary-button" type="button">Bulk Import</button>
-            </div>
           </div>
-          <div id="bulkImportPanel" class="bulk-import-panel" hidden>
-            <p class="status-copy">
-              Paste rows copied straight from a DEALS Portfolio Holdings Template export - Ticker, Quantity, Market Value,
-              and Cost Basis columns, one row per tax lot. Extra columns, blank rows, and header/title rows are ignored.
-              Lots for the same ticker are summed automatically. Importing replaces the ticker rows below.
-            </p>
-            <textarea
-              id="bulkImportInput"
-              class="bulk-import-textarea"
-              rows="6"
-              placeholder="MU&#9;74&#9;62882.24&#9;5694.30&#10;MU&#9;24&#9;20394.24&#9;1846.80&#10;..."
-            ></textarea>
-            <div class="button-row">
-              <button id="bulkImportApply" class="secondary-button" type="button">Import</button>
-              <button id="bulkImportCancel" class="secondary-button" type="button">Cancel</button>
-            </div>
-            <p id="bulkImportStatus" class="status-copy"></p>
-          </div>
-          <div class="finnhub-controls">
-            <label class="key-label" for="finnhubApiKey">Finnhub API Key</label>
-            <input id="finnhubApiKey" class="key-input" type="password" placeholder="Paste key to enable auto prices" autocomplete="off" />
-            <button id="saveFinnhubKeyButton" class="secondary-button" type="button">Save Key</button>
-            <button id="clearFinnhubKeyButton" class="secondary-button" type="button">Clear</button>
-          </div>
-          <p id="priceStatus" class="status-copy">Prices can be entered manually or refreshed from Finnhub when the local API key is configured.</p>
-          <div class="position-table-wrap">
-            <table class="position-table">
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th>Value</th>
-                  <th>Gain</th>
-                  <th>Shares</th>
-                  <th>Price</th>
-                  <th>Cost Basis</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="positionsBody"></tbody>
-              <tfoot id="positionsTotals"></tfoot>
-            </table>
-          </div>
-        </section>
+        </div>
 
         <div class="tab-panel active" id="summaryView">
           <section class="metric-grid" id="metricGrid"></section>

@@ -1,12 +1,14 @@
 const defaults = {
-  otherAssets: 2000000,
-  targetConcentration: 0,
-  taxRate: 25,
+  totalInvestableAssets: 5000000,
+  federalCapGainsRate: 20,
+  stateCapGainsRate: 0,
   exchangeExposure: "140/40",
   overlayAllocation: 2000000,
   overlayExposure: "130/30",
   benchmark: "sp500",
-  financingSpread: 0.3,
+  fedFundsRate: 4,
+  financingSpread: 0.5,
+  marginalTaxRate: 40.8,
   dynamicHedging: 0.2,
 };
 
@@ -15,6 +17,10 @@ const defaults = {
 // steps down as total assets under Quantinno management grow. Not editable
 // here since it's a fixed schedule, not an assumption.
 const TPMM_FEE_PCT = 0.45;
+
+// Statutory rate, not a client-specific input - either it applies (income
+// above the NIIT threshold) or it doesn't.
+const NIIT_RATE = 0.038;
 const MANAGEMENT_FEE_TIERS = [
   { min: 0, max: 5000000, advisoryFee: 0.8 },
   { min: 5000000, max: 15000000, advisoryFee: 0.6 },
@@ -25,6 +31,17 @@ const MANAGEMENT_FEE_TIERS = [
 function managementFeeTierFor(managedAssets) {
   const tier = MANAGEMENT_FEE_TIERS.find((row) => managedAssets >= row.min && managedAssets < row.max);
   return tier || MANAGEMENT_FEE_TIERS[0];
+}
+
+// Quantinno's TPMM fee stays flat at the 0.45% base rate through Reg-T
+// exposure (up to 145/45). Portfolio Margin exposure scales it instead:
+// Annual Fee = 0.45% x (Target Short Extension / 50%), calculated per
+// sleeve since Exchange and Overlay can sit at different exposures.
+function tpmmFeeRateFor(exposure) {
+  if (exposure.margin === "Portfolio Margin") {
+    return TPMM_FEE_PCT * (exposure.short / 50);
+  }
+  return TPMM_FEE_PCT;
 }
 
 // Calibrated against observed Quantinno DEALS Exchange 140/40 transition
@@ -122,14 +139,44 @@ function buildSleeve(kind, allocation, exposureKey) {
   };
 }
 
+// Net financing ties directly to the exposure chosen for this sleeve: the
+// long extension is financed at Fed Funds + spread (a cost), while the short
+// book earns a rebate at Fed Funds - spread (income, e.g. via Schwab's
+// SIRP). A short-heavy, asymmetric exposure (e.g. 115/45) can net to a
+// credit rather than a cost. The post-tax figure assumes the net financing
+// cost is deductible at the client's marginal rate.
+function financingForSleeve(sleeve, fedFundsRate, financingSpreadRate, marginalTaxRate) {
+  const longExtensionPct = sleeve.exposure.long - 100;
+  const shortPct = sleeve.exposure.short;
+  const longExpenseRate = -(fedFundsRate + financingSpreadRate) * (longExtensionPct / 100);
+  const shortIncomeRate = (fedFundsRate - financingSpreadRate) * (shortPct / 100);
+  const netPreTaxRate = longExpenseRate + shortIncomeRate;
+  const netPostTaxRate = netPreTaxRate * (1 - marginalTaxRate);
+  return {
+    longExtensionPct,
+    shortPct,
+    longExpenseRate,
+    shortIncomeRate,
+    netPreTaxRate,
+    netPostTaxRate,
+    longExpenseDollars: sleeve.allocation * longExpenseRate,
+    shortIncomeDollars: sleeve.allocation * shortIncomeRate,
+    preTaxDollars: sleeve.allocation * netPreTaxRate,
+    postTaxDollars: sleeve.allocation * netPostTaxRate,
+  };
+}
+
 let positions = [
-  { id: crypto.randomUUID(), ticker: "PLTR", shares: 20000, price: 100, basis: 400000 },
-  { id: crypto.randomUUID(), ticker: "GOOGL", shares: 5000, price: 200, basis: 600000 },
+  { id: crypto.randomUUID(), ticker: "PLTR", shares: 20000, price: 100, basis: 400000, exchangeAllocated: 2000000, overlayAllocated: 0 },
+  { id: crypto.randomUUID(), ticker: "GOOGL", shares: 5000, price: 200, basis: 600000, exchangeAllocated: 1000000, overlayAllocated: 0 },
 ];
 
 const ids = Object.keys(defaults);
 const inputs = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const dynamicHedgingEnabledCheckbox = document.getElementById("dynamicHedgingEnabled");
+const overlayEnabledCheckbox = document.getElementById("overlayEnabled");
+const niitEnabledCheckbox = document.getElementById("niitEnabled");
+const overlayFoldout = document.getElementById("overlayFoldout");
 const positionsBody = document.getElementById("positionsBody");
 const priceStatus = document.getElementById("priceStatus");
 const finnhubApiKeyInput = document.getElementById("finnhubApiKey");
@@ -143,7 +190,16 @@ let lastPriceUpdateAt = "";
 // Sliders paired with a directly-editable number input, since a bare range
 // slider can't represent an exact client dollar amount or blended rate
 // (Other/Overlay allocation snap to $250K steps otherwise).
-const pairedSliderIds = ["otherAssets", "targetConcentration", "taxRate", "overlayAllocation", "financingSpread", "dynamicHedging"];
+const pairedSliderIds = [
+  "totalInvestableAssets",
+  "federalCapGainsRate",
+  "stateCapGainsRate",
+  "overlayAllocation",
+  "fedFundsRate",
+  "financingSpread",
+  "marginalTaxRate",
+  "dynamicHedging",
+];
 
 const bulkImportToggle = document.getElementById("bulkImportToggle");
 const bulkImportPanel = document.getElementById("bulkImportPanel");
@@ -216,11 +272,15 @@ function syncPairedSlider(id) {
   slider.value = clamp(Number(number.value) || 0, Number(slider.min), Number(slider.max));
 }
 
-// Overlay Allocation can never exceed Other Portfolio Assets (getAssumptions
-// caps it there anyway) - keep the slider's own range capped to match live,
-// so the control itself can't be dragged past what will actually be used.
+// Overlay Allocation can never exceed "other assets" - Total Investable
+// Assets minus whatever is already sitting in the concentrated tickers
+// table (getAssumptions caps it there anyway) - keep the slider's own range
+// capped to match live, so the control itself can't be dragged past what
+// will actually be used.
 function syncOverlayAllocationCap() {
-  const otherAssets = Number(inputs.otherAssets.value) || 0;
+  const totalConcentratedValue = positions.reduce((sum, position) => sum + positionValue(position), 0);
+  const totalInvestableAssets = Number(inputs.totalInvestableAssets.value) || 0;
+  const otherAssets = Math.max(totalInvestableAssets - totalConcentratedValue, 0);
   const overlaySlider = sliderElementFor("overlayAllocation");
   if (overlaySlider) overlaySlider.max = otherAssets;
   if (Number(inputs.overlayAllocation.value) > otherAssets) {
@@ -248,6 +308,25 @@ function syncDynamicHedgingInputsDisabled() {
   inputs.dynamicHedging.disabled = disabled;
   const slider = sliderElementFor("dynamicHedging");
   if (slider) slider.disabled = disabled;
+}
+
+// Overlay starts opted out - folding the panel closed rather than resetting
+// its stored allocation, so toggling it back on restores whatever the
+// advisor last had it set to instead of losing that number. The foldout
+// also opens on its own once a concentrated position above is allocated to
+// Overlay, since that money is active in the sleeve regardless of this
+// checkbox (which only gates enrolling other assets on top of it).
+function syncOverlayFoldout() {
+  const otherAssetsEnabled = overlayEnabledCheckbox.checked;
+  const positionsAllocateOverlay = positions.some(
+    (position) => reclampPositionAllocation(position).overlayAllocated > 0,
+  );
+  const open = otherAssetsEnabled || positionsAllocateOverlay;
+  overlayFoldout.classList.toggle("is-open", open);
+  inputs.overlayAllocation.disabled = !otherAssetsEnabled;
+  inputs.overlayExposure.disabled = !open;
+  const slider = sliderElementFor("overlayAllocation");
+  if (slider) slider.disabled = !otherAssetsEnabled;
 }
 
 function numberValue(value) {
@@ -281,13 +360,31 @@ function gainRatio(position) {
 
 function getAssumptions() {
   const totalConcentratedValue = positions.reduce((sum, position) => sum + positionValue(position), 0);
-  const otherAssets = Number(inputs.otherAssets.value);
-  const portfolioValue = otherAssets + totalConcentratedValue;
+  const totalInvestableAssets = Number(inputs.totalInvestableAssets.value) || 0;
+  // Total Investable Assets is the client's whole picture, concentrated
+  // positions included - it can't be smaller than what's already sitting in
+  // the concentrated tickers table, so clamp up to that floor rather than
+  // letting concentration read as more than 100%. "Other assets" is then
+  // whatever's left after backing out the concentrated positions.
+  const investableAssetsClamped = totalInvestableAssets < totalConcentratedValue;
+  const portfolioValue = Math.max(totalInvestableAssets, totalConcentratedValue);
+  const otherAssets = portfolioValue - totalConcentratedValue;
   const totalBasis = positions.reduce((sum, position) => sum + position.basis, 0);
   const unrealizedGain = positions.reduce((sum, position) => sum + positionGain(position), 0);
-  const targetConcentration = Number(inputs.targetConcentration.value) / 100;
-  const targetStockValue = portfolioValue * targetConcentration;
-  const plannedSale = Math.max(totalConcentratedValue - targetStockValue, 0);
+  // Total concentrated positioning is always the full value of every ticker
+  // in the table, regardless of how much of it is allocated to a sleeve -
+  // it's only ever reduced by what Exchange actually sells over time
+  // (see buildPath's remainingStock). Overlay-allocated positions are held
+  // as collateral, never sold, so they stay concentrated indefinitely.
+  const exchangeAllocatedValue = positions.reduce((sum, position) => sum + reclampPositionAllocation(position).exchangeAllocated, 0);
+  const overlayAllocatedFromPositions = positions.reduce((sum, position) => sum + reclampPositionAllocation(position).overlayAllocated, 0);
+  // What gets sold is driven entirely by what's allocated to Exchange,
+  // position by position - there's no separate target percentage to
+  // reconcile against. Ending concentration is a result of those choices,
+  // not an input that then constrains them.
+  const plannedSale = exchangeAllocatedValue;
+  const endingStockValue = Math.max(totalConcentratedValue - exchangeAllocatedValue, 0);
+  const endingConcentration = portfolioValue > 0 ? endingStockValue / portfolioValue : 0;
   const salePlan = buildTaxSmartSalePlan(plannedSale);
   // Unrealized losses in the sale plan net directly against unrealized gains -
   // selling an underwater lot realizes a real loss immediately, no strategy
@@ -295,16 +392,33 @@ function getAssumptions() {
   // needs no offsetting losses (scenarioFor already treats gainToOffset <= 0
   // as "already there").
   const gainToOffset = Math.max(salePlan.reduce((sum, sale) => sum + sale.gainRealized, 0), 0);
-  const taxRate = Number(inputs.taxRate.value) / 100;
+  // Combined capital gains rate is built from its real components instead
+  // of one blended guess, so the client sees exactly what's driving it.
+  const federalCapGainsRate = Number(inputs.federalCapGainsRate.value) / 100;
+  const stateCapGainsRate = Number(inputs.stateCapGainsRate.value) / 100;
+  const niitEnabled = niitEnabledCheckbox.checked;
+  const niitRate = niitEnabled ? NIIT_RATE : 0;
+  const taxRate = federalCapGainsRate + stateCapGainsRate + niitRate;
   const taxIfSoldToday = gainToOffset * taxRate;
   const tickers = positions.map((position) => position.ticker).filter(Boolean);
   const benchmark = benchmarks[inputs.benchmark.value] || benchmarks.sp500;
 
-  // Two concurrent sleeves. Exchange is sized to the concentrated stock it
-  // manages; Overlay draws a chosen slice of the other portfolio assets.
-  const overlayAllocation = Math.min(Number(inputs.overlayAllocation.value), otherAssets);
-  const exchange = buildSleeve("exchange", totalConcentratedValue, inputs.exchangeExposure.value);
+  // Two concurrent sleeves. Exchange is sized to whatever's actually been
+  // allocated to it from the concentrated tickers table (not the full
+  // total). Overlay is sized the same way from its own column on that same
+  // table - that money is active whenever it's allocated, regardless of the
+  // checkbox below - plus, while opted in, a chosen slice of other assets on
+  // top. The stored other-assets amount is left untouched while folded away
+  // so re-enabling restores it instead of resetting it.
+  const overlayAllocationFromOtherAssets = overlayEnabledCheckbox.checked
+    ? Math.min(Number(inputs.overlayAllocation.value), otherAssets)
+    : 0;
+  const overlayAllocation = overlayAllocationFromOtherAssets + overlayAllocatedFromPositions;
+  const exchange = buildSleeve("exchange", exchangeAllocatedValue, inputs.exchangeExposure.value);
   const overlay = buildSleeve("overlay", overlayAllocation, inputs.overlayExposure.value);
+  if (overlayAllocatedFromPositions > 0) {
+    overlay.fundingShort = overlayAllocationFromOtherAssets > 0 ? "Other assets + concentrated tickers" : "Concentrated tickers";
+  }
   const sleeves = { exchange, overlay };
   const activeSleeves = [exchange, overlay].filter((sleeve) => sleeve.active);
 
@@ -317,12 +431,31 @@ function getAssumptions() {
       : 0;
 
   const feeTier = managementFeeTierFor(managedAssets);
-  const mgmtFeeRate = (TPMM_FEE_PCT + feeTier.advisoryFee) / 100;
-  const financingRate = Number(inputs.financingSpread.value) / 100;
+  // TPMM is calculated per sleeve since Exchange and Overlay can sit at
+  // different exposures (only Portfolio Margin tiers scale it); DiversiFi's
+  // advisory fee stays tiered off total managed assets, unaffected by
+  // exposure choice.
+  const exchangeTpmmRate = tpmmFeeRateFor(exchange.exposure);
+  const overlayTpmmRate = tpmmFeeRateFor(overlay.exposure);
+  const exchangeTpmmDollars = exchange.allocation * (exchangeTpmmRate / 100);
+  const overlayTpmmDollars = overlay.allocation * (overlayTpmmRate / 100);
+  const totalTpmmDollars = exchangeTpmmDollars + overlayTpmmDollars;
+  const advisoryDollars = managedAssets * (feeTier.advisoryFee / 100);
+  const blendedTpmmRate = managedAssets > 0 ? (totalTpmmDollars / managedAssets) * 100 : TPMM_FEE_PCT;
+  const annualMgmtFee = totalTpmmDollars + advisoryDollars;
+  const mgmtFeeRate = managedAssets > 0 ? annualMgmtFee / managedAssets : 0;
+  const fedFundsRate = Number(inputs.fedFundsRate.value) / 100;
+  const financingSpreadRate = Number(inputs.financingSpread.value) / 100;
+  const marginalTaxRate = Number(inputs.marginalTaxRate.value) / 100;
+  const exchangeFinancing = financingForSleeve(exchange, fedFundsRate, financingSpreadRate, marginalTaxRate);
+  const overlayFinancing = financingForSleeve(overlay, fedFundsRate, financingSpreadRate, marginalTaxRate);
   const dynamicHedgingEnabled = dynamicHedgingEnabledCheckbox.checked;
   const dynamicHedgingRate = Number(inputs.dynamicHedging.value) / 100;
-  const annualMgmtFee = managedAssets * mgmtFeeRate;
-  const annualFinancing = sleeveShortDollars * financingRate;
+  // Positive postTaxDollars is a net credit to the client (short income
+  // exceeds long-extension expense), so flip sign here: annualFinancing
+  // stays positive-when-cost, matching annualMgmtFee/annualDynamicHedging,
+  // and can go negative in that credit case (annualCosts subtracts it).
+  const annualFinancing = -(exchangeFinancing.postTaxDollars + overlayFinancing.postTaxDollars);
   const annualDynamicHedging = dynamicHedgingEnabled ? sleeveShortDollars * dynamicHedgingRate : 0;
 
   const strategyProfile = {
@@ -333,19 +466,28 @@ function getAssumptions() {
 
   return {
     portfolioValue,
+    totalInvestableAssets,
+    investableAssetsClamped,
     otherAssets,
     positions,
     tickers,
     totalConcentratedValue,
     totalBasis,
     currentConcentration: totalConcentratedValue / portfolioValue,
-    targetConcentration,
-    targetStockValue,
+    endingStockValue,
+    endingConcentration,
     plannedSale,
+    exchangeAllocatedValue,
+    overlayAllocatedFromPositions,
+    overlayAllocationFromOtherAssets,
     unrealizedGain,
     salePlan,
     gainToOffset,
     effectiveGainRatio: plannedSale > 0 ? gainToOffset / plannedSale : 0,
+    federalCapGainsRate,
+    stateCapGainsRate,
+    niitEnabled,
+    niitRate,
     taxRate,
     taxIfSoldToday,
     sleeves,
@@ -357,7 +499,14 @@ function getAssumptions() {
     strategyProfile,
     feeTier,
     mgmtFeeRate,
-    financingRate,
+    exchangeTpmmRate,
+    overlayTpmmRate,
+    blendedTpmmRate,
+    fedFundsRate,
+    financingSpreadRate,
+    marginalTaxRate,
+    exchangeFinancing,
+    overlayFinancing,
     dynamicHedgingEnabled,
     dynamicHedgingRate,
     annualMgmtFee,
@@ -370,13 +519,17 @@ function getAssumptions() {
 
 function buildTaxSmartSalePlan(plannedSale) {
   let remainingSale = plannedSale;
+  // Only the Exchange-allocated slice of each position is ever sold -
+  // whatever's allocated to Overlay is collateral, held indefinitely, and
+  // whatever isn't allocated to either sleeve just sits there too.
   const orderedPositions = [...positions].sort((left, right) => gainRatio(left) - gainRatio(right));
   const sales = [];
 
   orderedPositions.forEach((position) => {
     if (remainingSale <= 0) return;
-    const value = positionValue(position);
-    const saleAmount = Math.min(value, remainingSale);
+    const sellable = reclampPositionAllocation(position).exchangeAllocated;
+    const saleAmount = Math.min(sellable, remainingSale);
+    if (saleAmount <= 0) return;
     const ratio = gainRatio(position);
     sales.push({
       ticker: position.ticker,
@@ -515,6 +668,7 @@ function setupExposureCompareSelectors() {
 function updateOutputs() {
   syncBenchmarkAvailability();
   syncOverlayAllocationCap();
+  syncOverlayFoldout();
   const assumptions = getAssumptions();
   const scenarios = {
     conservative: scenarioFor(assumptions, "conservative"),
@@ -523,6 +677,7 @@ function updateOutputs() {
   };
 
   syncLabels(assumptions);
+  renderCapGainsRateSummary(assumptions);
   renderMetrics(assumptions, scenarios);
   renderNarrative(assumptions, scenarios);
   drawTransitionBlocks(document.getElementById("transitionBlockChart"), assumptions, scenarios.base);
@@ -542,7 +697,7 @@ function renderSaleOrder(assumptions) {
   if (!container) return;
   const sales = assumptions.salePlan.filter((sale) => sale.saleAmount > 0);
   if (!sales.length) {
-    container.innerHTML = `<p class="status-copy">No sales are needed at the current target concentration.</p>`;
+    container.innerHTML = `<p class="status-copy">Nothing is currently allocated to Exchange, so there's nothing to sell.</p>`;
     return;
   }
   container.innerHTML = sales
@@ -579,33 +734,49 @@ function syncLabels(assumptions) {
     if (!output) return;
     const value = Number(inputs[id].value);
 
-    if (["otherAssets", "overlayAllocation"].includes(id)) {
+    if (["totalInvestableAssets", "overlayAllocation"].includes(id)) {
       output.textContent = money(value);
-    } else if (["financingSpread", "dynamicHedging"].includes(id)) {
+    } else if (
+      [
+        "federalCapGainsRate",
+        "stateCapGainsRate",
+        "fedFundsRate",
+        "financingSpread",
+        "marginalTaxRate",
+        "dynamicHedging",
+      ].includes(id)
+    ) {
       output.textContent = `${value.toFixed(2)}%`;
     } else {
       output.textContent = pct(value, 0);
     }
   });
 
+  const niitOutput = document.getElementById("niitRateValue");
+  if (niitOutput) niitOutput.textContent = `${(assumptions.niitRate * 100).toFixed(2)}%`;
+
   renderPortfolioComposition(assumptions);
   renderSleeveSplit(assumptions);
 }
 
 function renderPortfolioComposition(assumptions) {
-  const overlayAllocation = assumptions.sleeves.overlay.allocation;
-  const unallocatedOtherAssets = Math.max(assumptions.otherAssets - overlayAllocation, 0);
+  const unallocatedOtherAssets = Math.max(assumptions.otherAssets - assumptions.overlayAllocationFromOtherAssets, 0);
+  const clampWarning = assumptions.investableAssetsClamped
+    ? `<div class="wide-fact margin-warning"><span>Heads up</span><strong>Total Investable Assets (${money(assumptions.totalInvestableAssets)}) is less than the concentrated tickers alone (${money(assumptions.totalConcentratedValue)}) - treating other assets as $0 until that's raised.</strong></div>`
+    : "";
   document.getElementById("portfolioComposition").innerHTML = `
     <div><span>Concentrated tickers</span><strong>${money(assumptions.totalConcentratedValue)}</strong></div>
     <div><span>Other assets</span><strong>${money(assumptions.otherAssets)}</strong></div>
-    <div class="wide-fact total-fact"><span>Total portfolio</span><strong>${money(assumptions.portfolioValue)} · ${pct(assumptions.currentConcentration * 100, 0)} concentrated today</strong></div>
-    <div><span>Other assets &rarr; Overlay</span><strong>${money(overlayAllocation)}</strong></div>
+    <div class="wide-fact total-fact"><span>Total investable assets</span><strong>${money(assumptions.portfolioValue)} · ${pct(assumptions.currentConcentration * 100, 0)} concentrated today</strong></div>
+    ${clampWarning}
+    <div><span>Other assets &rarr; Overlay</span><strong>${money(assumptions.overlayAllocationFromOtherAssets)}</strong></div>
     <div><span>Other assets &rarr; not enrolled</span><strong>${money(unallocatedOtherAssets)}</strong></div>
     <p class="composition-note">
-      Concentrated tickers fund DEALS Exchange directly - Exchange draws nothing from Other
-      Portfolio Assets. Only the Overlay Allocation slider below enrolls a slice of Other
-      Portfolio Assets; the rest stays as ordinary holdings, available as cash and untouched
-      by either sleeve.
+      Other assets is computed automatically: ${money(assumptions.portfolioValue)} total investable assets minus
+      ${money(assumptions.totalConcentratedValue)} in concentrated tickers above = ${money(assumptions.otherAssets)}.
+      Concentrated tickers fund DEALS Exchange directly - Exchange draws nothing from this pool. Only the Overlay
+      Allocation slider below enrolls a slice of it; the rest stays as ordinary holdings, available as cash and
+      untouched by either sleeve.
     </p>
   `;
 }
@@ -634,7 +805,17 @@ function renderSleeveSplit(assumptions) {
   const { exchange, overlay } = assumptions.sleeves;
   const allocNote = document.getElementById("exchangeAllocNote");
   if (allocNote) {
-    allocNote.textContent = `Sized automatically to your concentrated stock: ${money(exchange.allocation)}.`;
+    allocNote.textContent = `Sized from the Exchange column on each position below: ${money(exchange.allocation)} enrolled to be sold down.`;
+  }
+  const overlayAllocNote = document.getElementById("overlayAllocNote");
+  if (overlayAllocNote) {
+    overlayAllocNote.textContent = overlay.active
+      ? `Sized from the Overlay column on each position below${
+          assumptions.overlayAllocationFromOtherAssets > 0
+            ? ` plus ${money(assumptions.overlayAllocationFromOtherAssets)} of other assets`
+            : ""
+        }: ${money(overlay.allocation)} enrolled as collateral.`
+      : "Allocate a position to Overlay above, or enroll other assets below, to activate this sleeve.";
   }
   const marginWarnings = [exchange, overlay]
     .filter((sleeve) => sleeve.active && sleeve.marginRequired && sleeve.allocation < PORTFOLIO_MARGIN_MINIMUM)
@@ -716,7 +897,7 @@ function lossLotSentence(assumptions) {
 function renderNarrative(assumptions, scenarios) {
   const base = scenarios.base;
   const currentPct = pct(assumptions.currentConcentration * 100, 0);
-  const targetPct = pct(assumptions.targetConcentration * 100, 0);
+  const endingPct = pct(assumptions.endingConcentration * 100, 0);
   const names = assumptions.tickers.join(", ") || "the concentrated stock";
 
   const sleeveSentence = assumptions.sleeves.overlay.active
@@ -725,7 +906,7 @@ function renderNarrative(assumptions, scenarios) {
 
   document.getElementById("plainEnglish").textContent =
     `${names} currently total ${fullMoney(assumptions.totalConcentratedValue)}, or ${currentPct} of the portfolio. ` +
-    `To get to ${targetPct}, the client would sell about ${fullMoney(assumptions.plannedSale)} using a tax-smart order that sells lower-gain positions first. ` +
+    `Based on what's allocated to Exchange position by position in the table below, the client would sell about ${fullMoney(assumptions.plannedSale)}, using a tax-smart order that sells lower-gain positions first, ending at ${endingPct} concentrated. ` +
     lossLotSentence(assumptions) +
     `Those sales realize about ${fullMoney(assumptions.gainToOffset)} of net gain that needs losses to be tax-neutral. ` +
     sleeveSentence +
@@ -775,14 +956,15 @@ function renderFeePanel(assumptions, scenarios) {
     <div class="fee-lines">
       <div class="fee-line">
         <span>Management fee</span>
-        <small>TPMM ${TPMM_FEE_PCT.toFixed(2)}% + DiversiFi ${assumptions.feeTier.advisoryFee.toFixed(2)}% on ${money(assumptions.managedAssets)} managed</small>
+        <small>TPMM ${assumptions.blendedTpmmRate.toFixed(2)}% + DiversiFi ${assumptions.feeTier.advisoryFee.toFixed(2)}% on ${money(assumptions.managedAssets)} managed</small>
         <strong>${fullMoney(assumptions.annualMgmtFee)}/yr</strong>
       </div>
       <div class="fee-line">
-        <span>Net financing on shorts</span>
-        <small>${(assumptions.financingRate * 100).toFixed(2)}% on ${money(shortBook)} combined short book</small>
+        <span>Net financing</span>
+        <small>Fed Funds ${(assumptions.fedFundsRate * 100).toFixed(2)}% &plusmn; ${(assumptions.financingSpreadRate * 100).toFixed(2)}% spread, tied to each sleeve's own exposure, post-tax at ${(assumptions.marginalTaxRate * 100).toFixed(1)}% marginal rate</small>
         <strong>${fullMoney(assumptions.annualFinancing)}/yr</strong>
       </div>
+      ${renderFinancingDetail(assumptions)}
       ${dynamicHedgingLine}
       <div class="fee-line fee-line-total">
         <span>Total estimated cost</span>
@@ -798,18 +980,81 @@ function renderFeePanel(assumptions, scenarios) {
     <p class="fee-note">
       Management fee follows DiversiFi's published Quantinno fee schedule (TPMM 0.45% + a
       DiversiFi advisory fee that steps down as managed assets grow) and isn't user-editable.
-      Financing and dynamic hedging rates are editable assumptions, not Quantinno's fee schedule.
+      Fed Funds Rate, Financing Spread, Marginal Tax Rate, and dynamic hedging rates are
+      editable assumptions, not Quantinno's fee schedule.
     </p>
+  `;
+}
+
+function financingSleeveBlock(sleeve, financing, marginalTaxRate) {
+  const label = sleeve.kind === "exchange" ? "Exchange" : "Overlay";
+  const isCredit = financing.postTaxDollars > 0;
+  return `
+    <div class="financing-sleeve-block">
+      <div class="financing-sleeve-heading">
+        <span>${label} &middot; ${sleeve.exposure.long}/${sleeve.exposure.short}</span>
+        <strong class="${isCredit ? "is-credit" : ""}">${fullMoney(financing.postTaxDollars)}/yr</strong>
+      </div>
+      <div class="financing-sleeve-rows">
+        <div class="financing-sleeve-row">
+          <span>Long extension (${financing.longExtensionPct}%) &times; Fed Funds + spread</span>
+          <strong>${fullMoney(financing.longExpenseDollars)}</strong>
+        </div>
+        <div class="financing-sleeve-row">
+          <span>Short book (${financing.shortPct}%) &times; Fed Funds - spread</span>
+          <strong>${fullMoney(financing.shortIncomeDollars)}</strong>
+        </div>
+        <div class="financing-sleeve-row financing-sleeve-subtotal">
+          <span>Net pre-tax</span>
+          <strong>${fullMoney(financing.preTaxDollars)}</strong>
+        </div>
+        <div class="financing-sleeve-row financing-sleeve-subtotal">
+          <span>Net post-tax (${(marginalTaxRate * 100).toFixed(1)}% marginal rate)</span>
+          <strong class="${isCredit ? "is-credit" : ""}">${fullMoney(financing.postTaxDollars)}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderFinancingDetail(assumptions) {
+  const blocks = [financingSleeveBlock(assumptions.sleeves.exchange, assumptions.exchangeFinancing, assumptions.marginalTaxRate)];
+  if (assumptions.sleeves.overlay.active) {
+    blocks.push(financingSleeveBlock(assumptions.sleeves.overlay, assumptions.overlayFinancing, assumptions.marginalTaxRate));
+  }
+  return `<div class="financing-detail">${blocks.join("")}</div>`;
+}
+
+function renderCapGainsRateSummary(assumptions) {
+  const el = document.getElementById("capGainsRateSummary");
+  if (!el) return;
+  el.innerHTML = `
+    <div><span>Federal</span><strong>${(assumptions.federalCapGainsRate * 100).toFixed(2)}%</strong></div>
+    <div><span>State</span><strong>${(assumptions.stateCapGainsRate * 100).toFixed(2)}%</strong></div>
+    <div><span>NIIT</span><strong>${(assumptions.niitRate * 100).toFixed(2)}%</strong></div>
+    <div class="wide-fact total-fact"><span>Combined capital gains rate</span><strong>${(assumptions.taxRate * 100).toFixed(2)}%</strong></div>
   `;
 }
 
 function renderManagementFeeSummary(assumptions) {
   const el = document.getElementById("managementFeeSummary");
   if (!el) return;
+  const sameTpmm = !assumptions.sleeves.overlay.active || assumptions.exchangeTpmmRate === assumptions.overlayTpmmRate;
+  const tpmmRows = sameTpmm
+    ? `<div><span>TPMM fee (Quantinno)</span><strong>${assumptions.exchangeTpmmRate.toFixed(2)}%</strong></div>`
+    : `
+      <div><span>TPMM fee &middot; Exchange</span><strong>${assumptions.exchangeTpmmRate.toFixed(2)}%</strong></div>
+      <div><span>TPMM fee &middot; Overlay</span><strong>${assumptions.overlayTpmmRate.toFixed(2)}%</strong></div>
+    `;
+  const elevatedNote =
+    assumptions.blendedTpmmRate > TPMM_FEE_PCT + 0.001
+      ? `<p class="composition-note">TPMM scales above the ${TPMM_FEE_PCT.toFixed(2)}% base rate for Portfolio Margin exposure (above 145/45): ${TPMM_FEE_PCT.toFixed(2)}% &times; (short extension &divide; 50%).</p>`
+      : "";
   el.innerHTML = `
-    <div><span>TPMM fee (Quantinno)</span><strong>${TPMM_FEE_PCT.toFixed(2)}%</strong></div>
+    ${tpmmRows}
     <div><span>DiversiFi fee (tiered)</span><strong>${assumptions.feeTier.advisoryFee.toFixed(2)}%</strong></div>
     <div class="wide-fact total-fact"><span>Total management fee</span><strong>${(assumptions.mgmtFeeRate * 100).toFixed(2)}% on ${money(assumptions.managedAssets)} managed</strong></div>
+    ${elevatedNote}
   `;
 }
 
@@ -964,12 +1209,13 @@ function renderPlanTable(assumptions, scenario) {
   const shockPct = stressInput ? Number(stressInput.value) / 100 : 0;
   const shockLabel = `${shockPct >= 0 ? "+" : ""}${Math.round(shockPct * 100)}%`;
   const stressHeader = document.getElementById("stressColumnHeader");
-  if (stressHeader) stressHeader.textContent = `If ${shockLabel}`;
+  if (stressHeader) stressHeader.textContent = `If stock is ${shockLabel}`;
   const stressCaption = document.getElementById("stressCaption");
   if (stressCaption) {
     stressCaption.textContent =
-      `"Remaining" is the base-case plan. "If ${shockLabel}" shows what that same remaining position would be worth if the stock ` +
-      `moved ${shockLabel} from today's price by that year - the concentration risk still being carried while losses accumulate.`;
+      `Drag the slider to see the concentration risk still being carried each year: if the stock is ${shockLabel} from ` +
+      `today's price, that year's remaining position swings by the amount shown, and represents a different share of ` +
+      `the (also-changed) portfolio - even though the strategy's own losses/sales plan doesn't change at all.`;
   }
 
   if (scenario.annualLosses <= 0 && assumptions.gainToOffset > 0) {
@@ -982,17 +1228,26 @@ function renderPlanTable(assumptions, scenario) {
   const displayYears = Number.isFinite(scenario.years) ? clamp(Math.ceil(scenario.years), 1, 10) : 10;
   const rows = scenario.path.filter((row) => row.year > 0 && row.year <= displayYears);
   planTable.innerHTML = rows
-    .map(
-      (row) => `
+    .map((row) => {
+      const stressedValue = row.remainingStock * (1 + shockPct);
+      const delta = stressedValue - row.remainingStock;
+      const stressedPortfolio = assumptions.otherAssets + stressedValue;
+      const stressedConcentration = stressedPortfolio > 0 ? (stressedValue / stressedPortfolio) * 100 : 0;
+      const deltaClass = delta < 0 ? "down" : delta > 0 ? "up" : "";
+      const deltaLabel = delta === 0 ? "no change" : `${fullMoney(delta)} vs. base`;
+      return `
         <tr>
           <td>${row.year}</td>
           <td>${fullMoney(row.cumulativeLosses)}</td>
           <td>${fullMoney(row.cumulativeSale)}</td>
           <td>${fullMoney(row.remainingStock)} <span>${pct(row.concentration * 100, 0)}</span></td>
-          <td>${fullMoney(row.remainingStock * (1 + shockPct))}</td>
+          <td>
+            ${fullMoney(stressedValue)}
+            <span class="stress-delta ${deltaClass}">${deltaLabel} &middot; ${pct(stressedConcentration, 0)} concentrated</span>
+          </td>
         </tr>
-      `,
-    )
+      `;
+    })
     .join("");
 }
 
@@ -1036,9 +1291,9 @@ function renderMultiYearExample(assumptions, baseScenario, scenarios) {
       note: `${fullMoney(assumptions.totalConcentratedValue)} currently in ${names}`,
     },
     {
-      label: "Target concentration",
-      value: pct(assumptions.targetConcentration * 100, 0),
-      note: `${fullMoney(assumptions.plannedSale)} planned to sell down`,
+      label: "Ending concentration",
+      value: pct(assumptions.endingConcentration * 100, 0),
+      note: `${fullMoney(assumptions.plannedSale)} allocated to Exchange to sell down`,
     },
     {
       label: "Modeled account return",
@@ -1366,25 +1621,73 @@ function renderOnboardingPersonalization(assumptions) {
   `;
 }
 
+// Exchange gets priority when a position's value shrinks below what was
+// allocated (e.g. price drops) - clamp Exchange to the position value first,
+// then give Overlay whatever room is left, so a single source of truth
+// governs both display and math without the two ever summing past 100%.
+function reclampPositionAllocation(position) {
+  const cap = positionValue(position);
+  const exchangeAllocated = clamp(position.exchangeAllocated, 0, cap);
+  const overlayAllocated = clamp(position.overlayAllocated, 0, Math.max(cap - exchangeAllocated, 0));
+  return { exchangeAllocated, overlayAllocated };
+}
+
 function renderPositions() {
   positionsBody.innerHTML = positions
     .map((position) => {
       const value = positionValue(position);
       const gain = positionGain(position);
       const isLiveUpdated = lastUpdatedTickers.has(position.ticker);
+      const { exchangeAllocated, overlayAllocated } = reclampPositionAllocation(position);
+      const unallocated = Math.max(value - exchangeAllocated - overlayAllocated, 0);
+      const exchangePct = value > 0 ? (exchangeAllocated / value) * 100 : 0;
+      const overlayPct = value > 0 ? (overlayAllocated / value) * 100 : 0;
+      const unallocatedPct = value > 0 ? (unallocated / value) * 100 : 0;
       return `
-        <tr data-id="${position.id}">
-          <td><input class="table-input ticker-input" data-field="ticker" value="${position.ticker}" maxlength="8" /></td>
-          <td>${fullMoney(value)}</td>
-          <td>${fullMoney(gain)} <span>${pct(gainRatio(position) * 100, 0)}</span></td>
-          <td><input class="table-input numeric-input" data-field="shares" type="number" min="0" step="1" value="${position.shares}" /></td>
-          <td>
-            <input class="table-input numeric-input ${isLiveUpdated ? "price-live-updated" : ""}" data-field="price" type="number" min="0" step="0.01" value="${position.price}" />
-            ${isLiveUpdated ? '<small class="live-price-note">Live updated</small>' : ""}
-          </td>
-          <td><input class="table-input numeric-input" data-field="basis" type="number" min="0" step="1000" value="${position.basis}" /></td>
-          <td><button class="row-button" type="button" data-action="remove" aria-label="Remove ${position.ticker}">×</button></td>
-        </tr>
+        <div class="position-card" data-id="${position.id}">
+          <div class="position-card-head">
+            <input class="table-input ticker-input position-ticker-input" data-field="ticker" value="${position.ticker}" maxlength="8" />
+            <div class="position-card-value">
+              <strong>${fullMoney(value)}</strong>
+              <span>${fullMoney(gain)} ${pct(gainRatio(position) * 100, 0)}</span>
+            </div>
+            <button class="row-button" type="button" data-action="remove" aria-label="Remove ${position.ticker}">×</button>
+          </div>
+          <div class="position-card-fields">
+            <label>
+              <span>Shares</span>
+              <input class="table-input numeric-input" data-field="shares" type="number" min="0" step="1" value="${position.shares}" />
+            </label>
+            <label>
+              <span>Price</span>
+              <input class="table-input numeric-input ${isLiveUpdated ? "price-live-updated" : ""}" data-field="price" type="number" min="0" step="0.01" value="${position.price}" />
+              ${isLiveUpdated ? '<small class="live-price-note">Live updated</small>' : ""}
+            </label>
+            <label>
+              <span>Cost Basis</span>
+              <input class="table-input numeric-input" data-field="basis" type="number" min="0" step="1000" value="${position.basis}" />
+            </label>
+          </div>
+          <div class="position-allocation">
+            <div class="position-allocation-bar" aria-hidden="true">
+              <span class="alloc-exchange" style="width:${exchangePct}%" title="Exchange: ${fullMoney(exchangeAllocated)}"></span>
+              <span class="alloc-overlay" style="width:${overlayPct}%" title="Overlay: ${fullMoney(overlayAllocated)}"></span>
+            </div>
+            <div class="position-allocation-fields">
+              <label class="alloc-exchange-field">
+                <span>Exchange</span>
+                <input class="table-input numeric-input" data-field="exchangeAllocated" type="number" min="0" max="${value}" step="1000" value="${exchangeAllocated}" />
+                <small>${pct(exchangePct, 0)}</small>
+              </label>
+              <label class="alloc-overlay-field">
+                <span>Overlay</span>
+                <input class="table-input numeric-input" data-field="overlayAllocated" type="number" min="0" max="${value}" step="1000" value="${overlayAllocated}" />
+                <small>${pct(overlayPct, 0)}</small>
+              </label>
+            </div>
+            <div class="position-allocation-remaining">${fullMoney(unallocated)} unallocated &middot; ${pct(unallocatedPct, 0)}</div>
+          </div>
+        </div>
       `;
     })
     .join("");
@@ -1392,16 +1695,27 @@ function renderPositions() {
   const totalValue = positions.reduce((sum, position) => sum + positionValue(position), 0);
   const totalGain = positions.reduce((sum, position) => sum + positionGain(position), 0);
   const totalBasis = positions.reduce((sum, position) => sum + position.basis, 0);
+  const allocationTotals = positions.reduce(
+    (totals, position) => {
+      const { exchangeAllocated, overlayAllocated } = reclampPositionAllocation(position);
+      totals.exchange += exchangeAllocated;
+      totals.overlay += overlayAllocated;
+      totals.unallocated += Math.max(positionValue(position) - exchangeAllocated - overlayAllocated, 0);
+      return totals;
+    },
+    { exchange: 0, overlay: 0, unallocated: 0 },
+  );
   document.getElementById("positionsTotals").innerHTML = `
-    <tr>
-      <td>Total concentrated</td>
-      <td>${fullMoney(totalValue)}</td>
-      <td>${fullMoney(totalGain)} <span>${pct(totalValue > 0 ? (totalGain / totalValue) * 100 : 0, 0)}</span></td>
-      <td></td>
-      <td></td>
-      <td>${fullMoney(totalBasis)}</td>
-      <td></td>
-    </tr>
+    <div class="position-totals-row">
+      <div><span>Total concentrated</span><strong>${fullMoney(totalValue)}</strong></div>
+      <div><span>Total gain</span><strong>${fullMoney(totalGain)}</strong><small>${pct(totalValue > 0 ? (totalGain / totalValue) * 100 : 0, 0)}</small></div>
+      <div><span>Total basis</span><strong>${fullMoney(totalBasis)}</strong></div>
+    </div>
+    <div class="position-totals-row">
+      <div><span>To Exchange</span><strong>${fullMoney(allocationTotals.exchange)}</strong></div>
+      <div><span>To Overlay</span><strong>${fullMoney(allocationTotals.overlay)}</strong></div>
+      <div><span>Unallocated</span><strong>${fullMoney(allocationTotals.unallocated)}</strong></div>
+    </div>
   `;
 }
 
@@ -1411,13 +1725,38 @@ function updatePosition(id, field, value) {
     if (field === "ticker") return { ...position, ticker: value.trim().toUpperCase() };
     return { ...position, [field]: Math.max(0, numberValue(value)) };
   });
+  // Exchange + Overlay can never sum past what the position is actually
+  // worth. Whichever field was just edited keeps its own new value (clamped
+  // to the position's full value); the other one gives up room if needed -
+  // that way editing one allocation never silently overwrites a number you
+  // didn't touch, except to make room for the edit you just made.
+  positions = positions.map((position) => {
+    if (position.id !== id) return position;
+    const cap = positionValue(position);
+    if (field === "overlayAllocated") {
+      const overlayAllocated = clamp(position.overlayAllocated, 0, cap);
+      const exchangeAllocated = clamp(position.exchangeAllocated, 0, Math.max(cap - overlayAllocated, 0));
+      return { ...position, exchangeAllocated, overlayAllocated };
+    }
+    const exchangeAllocated = clamp(position.exchangeAllocated, 0, cap);
+    const overlayAllocated = clamp(position.overlayAllocated, 0, Math.max(cap - exchangeAllocated, 0));
+    return { ...position, exchangeAllocated, overlayAllocated };
+  });
   markScenarioDirty();
   renderPositions();
   updateOutputs();
 }
 
 function addPosition() {
-  positions.push({ id: crypto.randomUUID(), ticker: "MSFT", shares: 1000, price: 400, basis: 200000 });
+  positions.push({
+    id: crypto.randomUUID(),
+    ticker: "MSFT",
+    shares: 1000,
+    price: 400,
+    basis: 200000,
+    exchangeAllocated: 400000,
+    overlayAllocated: 0,
+  });
   markScenarioDirty();
   renderPositions();
   updateOutputs();
@@ -1427,6 +1766,28 @@ function addPosition() {
 function removePosition(id) {
   if (positions.length === 1) return;
   positions = positions.filter((position) => position.id !== id);
+  markScenarioDirty();
+  renderPositions();
+  updateOutputs();
+}
+
+// Bulk convenience actions - setting every position by hand is a lot more
+// clicks than the old single Target Concentration slider, so these cover
+// the two most common cases in one click each: sell everything, or hold
+// everything as-is while you plan.
+function allocateAllToExchange() {
+  positions = positions.map((position) => ({
+    ...position,
+    exchangeAllocated: positionValue(position),
+    overlayAllocated: 0,
+  }));
+  markScenarioDirty();
+  renderPositions();
+  updateOutputs();
+}
+
+function clearAllAllocations() {
+  positions = positions.map((position) => ({ ...position, exchangeAllocated: 0, overlayAllocated: 0 }));
   markScenarioDirty();
   renderPositions();
   updateOutputs();
@@ -1496,9 +1857,12 @@ function resetAssumptions() {
   });
   dynamicHedgingEnabledCheckbox.checked = true;
   syncDynamicHedgingInputsDisabled();
+  overlayEnabledCheckbox.checked = false;
+  syncOverlayFoldout();
+  niitEnabledCheckbox.checked = true;
   positions = [
-    { id: crypto.randomUUID(), ticker: "PLTR", shares: 20000, price: 100, basis: 400000 },
-    { id: crypto.randomUUID(), ticker: "GOOGL", shares: 5000, price: 200, basis: 600000 },
+    { id: crypto.randomUUID(), ticker: "PLTR", shares: 20000, price: 100, basis: 400000, exchangeAllocated: 2000000, overlayAllocated: 0 },
+    { id: crypto.randomUUID(), ticker: "GOOGL", shares: 5000, price: 200, basis: 600000, exchangeAllocated: 1000000, overlayAllocated: 0 },
   ];
   lastUpdatedTickers = new Set();
   refreshPriceStatus();
@@ -1572,6 +1936,8 @@ function parseBulkImportLots(text) {
     shares: Math.round(lotTotals.shares * 100) / 100,
     price: lotTotals.shares > 0 ? Math.round((lotTotals.marketValue / lotTotals.shares) * 100) / 100 : 0,
     basis: Math.round(lotTotals.costBasis * 100) / 100,
+    exchangeAllocated: Math.round(lotTotals.marketValue * 100) / 100,
+    overlayAllocated: 0,
   }));
 
   return { importedPositions, matchedRows, skippedRows };
@@ -1638,8 +2004,39 @@ function captureCurrentScenario() {
     snapshot[id] = inputs[id].value;
   });
   snapshot.dynamicHedgingEnabled = dynamicHedgingEnabledCheckbox.checked;
-  snapshot.positions = positions.map(({ ticker, shares, price, basis }) => ({ ticker, shares, price, basis }));
+  snapshot.overlayEnabled = overlayEnabledCheckbox.checked;
+  snapshot.niitEnabled = niitEnabledCheckbox.checked;
+  snapshot.positions = positions.map(({ ticker, shares, price, basis, exchangeAllocated, overlayAllocated }) => ({
+    ticker,
+    shares,
+    price,
+    basis,
+    exchangeAllocated,
+    overlayAllocated,
+  }));
   return snapshot;
+}
+
+// Migrates a saved position to the current { exchangeAllocated,
+// overlayAllocated } shape from either older saved-scenario format:
+// pre-split (no allocation fields at all, implicitly 100% Exchange) or the
+// single-sleeve-choice format (allocatedSleeve + allocatedAmount).
+function migratePositionAllocation(position) {
+  const fullValue = position.shares * position.price;
+  if (position.exchangeAllocated !== undefined || position.overlayAllocated !== undefined) {
+    return {
+      exchangeAllocated: position.exchangeAllocated ?? 0,
+      overlayAllocated: position.overlayAllocated ?? 0,
+    };
+  }
+  if (position.allocatedSleeve !== undefined) {
+    const amount = position.allocatedAmount ?? fullValue;
+    return {
+      exchangeAllocated: position.allocatedSleeve === "exchange" ? amount : 0,
+      overlayAllocated: position.allocatedSleeve === "overlay" ? amount : 0,
+    };
+  }
+  return { exchangeAllocated: fullValue, overlayAllocated: 0 };
 }
 
 function applyScenario(snapshot) {
@@ -1648,11 +2045,30 @@ function applyScenario(snapshot) {
     inputs[id].value = snapshot[id];
     syncPairedSlider(id);
   });
+  // Older saved scenarios predate the NIIT toggle and instead saved a
+  // numeric niitRate (0-3.8) - treat an explicit 0 there as "off" so those
+  // scenarios keep behaving the way they always did.
+  niitEnabledCheckbox.checked =
+    snapshot.niitEnabled !== undefined ? snapshot.niitEnabled : Number(snapshot.niitRate ?? 3.8) > 0;
   dynamicHedgingEnabledCheckbox.checked = snapshot.dynamicHedgingEnabled !== false;
   syncDynamicHedgingInputsDisabled();
-  positions = (snapshot.positions || []).map((position) => ({ id: crypto.randomUUID(), ...position }));
+  // Older saved scenarios predate the Overlay toggle - default them to
+  // enabled so a non-zero saved allocation keeps behaving the way it always
+  // did instead of silently going inactive on load.
+  overlayEnabledCheckbox.checked = snapshot.overlayEnabled !== false;
+  syncOverlayFoldout();
+  positions = (snapshot.positions || []).map((position) => ({
+    id: crypto.randomUUID(),
+    ticker: position.ticker,
+    shares: position.shares,
+    price: position.price,
+    basis: position.basis,
+    ...migratePositionAllocation(position),
+  }));
   if (!positions.length) {
-    positions = [{ id: crypto.randomUUID(), ticker: "MSFT", shares: 1000, price: 400, basis: 200000 }];
+    positions = [
+      { id: crypto.randomUUID(), ticker: "MSFT", shares: 1000, price: 400, basis: 200000, exchangeAllocated: 400000, overlayAllocated: 0 },
+    ];
   }
   lastUpdatedTickers = new Set();
   renderPositions();
@@ -1736,12 +2152,23 @@ dynamicHedgingEnabledCheckbox.addEventListener("change", () => {
   markScenarioDirty();
   updateOutputs();
 });
+overlayEnabledCheckbox.addEventListener("change", () => {
+  syncOverlayFoldout();
+  markScenarioDirty();
+  updateOutputs();
+});
+niitEnabledCheckbox.addEventListener("change", () => {
+  markScenarioDirty();
+  updateOutputs();
+});
 document.querySelectorAll(".tab-button").forEach((button) => {
   button.addEventListener("click", () => setActiveTab(button.dataset.tab));
 });
 document.getElementById("resetButton").addEventListener("click", resetAssumptions);
 document.getElementById("printButton").addEventListener("click", () => window.print());
 document.getElementById("addPositionButton").addEventListener("click", addPosition);
+document.getElementById("allocateAllExchangeButton").addEventListener("click", allocateAllToExchange);
+document.getElementById("clearAllocationsButton").addEventListener("click", clearAllAllocations);
 document.getElementById("refreshPricesButton").addEventListener("click", refreshPrices);
 saveFinnhubKeyButton.addEventListener("click", saveFinnhubKey);
 clearFinnhubKeyButton.addEventListener("click", clearFinnhubKey);
@@ -1758,17 +2185,17 @@ saveScenarioButton.addEventListener("click", saveScenario);
 deleteScenarioButton.addEventListener("click", deleteScenario);
 
 positionsBody.addEventListener("change", (event) => {
-  const row = event.target.closest("tr");
+  const card = event.target.closest(".position-card");
   const field = event.target.dataset.field;
-  if (!row || !field) return;
-  updatePosition(row.dataset.id, field, event.target.value);
+  if (!card || !field) return;
+  updatePosition(card.dataset.id, field, event.target.value);
   if (field === "ticker") scheduleAutoRefresh();
 });
 
 positionsBody.addEventListener("click", (event) => {
   if (event.target.dataset.action !== "remove") return;
-  const row = event.target.closest("tr");
-  if (row) removePosition(row.dataset.id);
+  const card = event.target.closest(".position-card");
+  if (card) removePosition(card.dataset.id);
 });
 
 // The exposure comparison is an exploratory "what if" - it deliberately

@@ -51,10 +51,56 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   max-width: 1440px;
   margin: 0 auto;
   padding: 0 24px;
+}
+
+.dfi-topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dfi-topbar-scenario {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dfi-topbar-select {
+  min-height: 38px;
+  max-width: 180px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.dfi-topbar-select option {
+  color: #0b1b34;
+}
+
+.dfi-topbar-status {
+  max-width: 1440px;
+  margin: 4px auto 0;
+  padding: 0 24px;
+  text-align: right;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.dfi-topbar-status:empty {
+  display: none;
 }
 
 .wordmark {
@@ -105,8 +151,6 @@ select {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -115,6 +159,7 @@ select {
   top: 0;
   align-self: start;
   height: 100vh;
+  min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 28px;
@@ -137,8 +182,31 @@ select {
   background: var(--muted);
 }
 
+/* The Concentrated Positions panel lives in the sidebar now, which is much
+   narrower than the dashboard it used to sit in - stack its heading/button
+   row and Finnhub controls the same way they already stack on mobile,
+   rather than relying on a viewport media query that wouldn't fire here. */
+.control-panel .panel-heading {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.control-panel .panel-heading .button-row {
+  justify-content: flex-start;
+}
+
+.control-panel .finnhub-controls {
+  grid-template-columns: 1fr 1fr;
+}
+
+.control-panel .key-input {
+  grid-column: 1 / -1;
+}
+
 .brand-block {
   padding-bottom: 20px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -243,6 +311,10 @@ label,
 
 .input-row:has(#dynamicHedgingEnabled:not(:checked)) .slider-with-number,
 .input-row:has(#dynamicHedgingEnabled:not(:checked)) output {
+  opacity: 0.45;
+}
+
+.input-row:has(#niitEnabled:not(:checked)) output {
   opacity: 0.45;
 }
 
@@ -464,6 +536,53 @@ input[type="range"] {
   background: var(--purple);
 }
 
+.sleeve-heading-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.overlay-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.overlay-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.overlay-foldout {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.28s ease, opacity 0.2s ease;
+}
+
+.overlay-foldout > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overlay-foldout.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay-foldout {
+    transition: none;
+  }
+}
+
 .sleeve-derived-note {
   margin-top: 8px;
   color: var(--muted);
@@ -606,7 +725,30 @@ output {
 
 .dashboard {
   min-width: 0;
+  max-width: 1600px;
+  margin: 0 auto;
   padding: 30px;
+}
+
+.data-input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  align-items: start;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.data-input-grid > #positionsPanel {
+  grid-column: 1 / -1;
+}
+
+.data-input-grid .input-group {
+  margin: 0;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 .view-tabs {
@@ -722,6 +864,206 @@ output {
   width: 100%;
   overflow-x: auto;
   margin-top: 14px;
+}
+
+.position-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  align-items: start;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.position-card {
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.position-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.position-card-head .position-ticker-input {
+  flex: none;
+  width: 84px;
+  font-size: 0.98rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.position-card-value {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}
+
+.position-card-value strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-card-value span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.position-card-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.position-card-fields label {
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+
+.position-card-fields label span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.position-allocation {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.position-allocation-bar {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.position-allocation-bar .alloc-exchange {
+  background: var(--cyan);
+}
+
+.position-allocation-bar .alloc-overlay {
+  background: var(--purple);
+}
+
+.position-allocation-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.position-allocation-fields label {
+  display: block;
+  margin: 0;
+  padding: 8px 10px;
+  background: #f7faff;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--cyan);
+  border-radius: 8px;
+}
+
+.alloc-overlay-field {
+  border-left-color: var(--purple) !important;
+}
+
+.position-allocation-fields span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.position-allocation-fields input {
+  background: #ffffff;
+}
+
+.position-allocation-fields small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.position-allocation-remaining {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.position-totals-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--cyan-soft);
+  border: 1px solid var(--cyan);
+  border-radius: 10px;
+}
+
+.position-bulk-actions {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+
+.position-totals-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.position-totals-row div {
+  min-width: 0;
+}
+
+.position-totals-row span {
+  display: block;
+  color: var(--purple);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.position-totals-row strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.position-totals-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .metric-card {
@@ -1444,6 +1786,65 @@ output {
   line-height: 1.4;
 }
 
+.financing-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -4px 0 2px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+}
+
+.financing-sleeve-block {
+  padding: 2px 0;
+}
+
+.financing-sleeve-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 850;
+  color: var(--ink);
+}
+
+.financing-sleeve-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.financing-sleeve-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.financing-sleeve-row strong {
+  flex: none;
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.financing-sleeve-subtotal {
+  padding-top: 2px;
+  border-top: 1px dashed var(--line);
+  font-weight: 700;
+}
+
+.financing-sleeve-subtotal strong {
+  font-weight: 850;
+}
+
+.is-credit {
+  color: var(--teal);
+}
+
 .sale-order-list {
   display: flex;
   flex-direction: column;
@@ -2001,7 +2402,7 @@ table {
 }
 
 .position-table {
-  min-width: 820px;
+  min-width: 1080px;
 }
 
 .position-table th:first-child,
@@ -2075,6 +2476,21 @@ td span {
   font-weight: 700;
 }
 
+.stress-delta {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.stress-delta.down {
+  color: var(--red);
+}
+
+.stress-delta.up {
+  color: var(--teal);
+}
+
 .table-input {
   width: 100%;
   min-height: 36px;
@@ -2100,6 +2516,20 @@ td span {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.01em;
+}
+
+.allocation-pct-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.position-table select.table-input {
+  min-height: 36px;
+  padding: 7px 8px;
 }
 
 .ticker-input {
@@ -2239,6 +2669,8 @@ td span {
   .control-panel,
   .text-button,
   .dfi-topbar-button,
+  .dfi-topbar-scenario,
+  .dfi-topbar-status,
   .view-tabs {
     display: none;
   }
@@ -2256,13 +2688,23 @@ td span {
 
   /* "Print Report" is meant to produce the full report regardless of which
      tab happens to be on screen, so force every tab panel to print, each
-     starting on its own page. */
+     starting on its own page. Data Input is the raw entry form, not part of
+     the client-facing report, so it's excluded and Planning Summary (now
+     the first visible panel) doesn't get an orphaned leading page break. */
   .tab-panel {
     display: block !important;
   }
 
+  #dataInputView {
+    display: none !important;
+  }
+
   .tab-panel + .tab-panel {
     break-before: page;
+  }
+
+  #summaryView {
+    break-before: auto;
   }
 
   .panel,
