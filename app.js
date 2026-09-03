@@ -2184,6 +2184,43 @@ document.querySelectorAll(".tab-button").forEach((button) => {
 });
 document.getElementById("resetButton").addEventListener("click", resetAssumptions);
 document.getElementById("printButton").addEventListener("click", () => window.print());
+
+// Planning Summary detail sections stay folded so the client is only ever
+// looking at the one thing being explained. The toolbar button flips them
+// all at once, and the printed report always goes out fully expanded no
+// matter what happens to be open on screen.
+const summaryFolds = [...document.querySelectorAll(".summary-folds .fold")];
+const toggleAllFoldsButton = document.getElementById("toggleAllFoldsButton");
+
+function syncToggleAllFoldsButton() {
+  const allOpen = summaryFolds.length > 0 && summaryFolds.every((fold) => fold.open);
+  toggleAllFoldsButton.textContent = allOpen ? "Collapse all" : "Expand all";
+  toggleAllFoldsButton.setAttribute("aria-expanded", String(allOpen));
+}
+
+toggleAllFoldsButton.addEventListener("click", () => {
+  const expand = !summaryFolds.every((fold) => fold.open);
+  summaryFolds.forEach((fold) => {
+    fold.open = expand;
+  });
+  syncToggleAllFoldsButton();
+});
+
+summaryFolds.forEach((fold) => fold.addEventListener("toggle", syncToggleAllFoldsButton));
+
+let foldStateBeforePrint = [];
+window.addEventListener("beforeprint", () => {
+  foldStateBeforePrint = summaryFolds.map((fold) => fold.open);
+  summaryFolds.forEach((fold) => {
+    fold.open = true;
+  });
+});
+window.addEventListener("afterprint", () => {
+  summaryFolds.forEach((fold, index) => {
+    fold.open = foldStateBeforePrint[index] ?? false;
+  });
+  syncToggleAllFoldsButton();
+});
 document.getElementById("addPositionButton").addEventListener("click", addPosition);
 document.getElementById("allocateAllExchangeButton").addEventListener("click", allocateAllToExchange);
 document.getElementById("clearAllocationsButton").addEventListener("click", clearAllAllocations);

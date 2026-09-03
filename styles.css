@@ -204,10 +204,13 @@ select {
   grid-column: 1 / -1;
 }
 
+/* The hero is centered so the title sits balanced on a full-width page
+   rather than hugging the left edge of a very wide container. */
 .brand-block {
-  padding-bottom: 20px;
-  margin-bottom: 20px;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
   border-bottom: 1px solid var(--line);
+  text-align: center;
 }
 
 .brand-block::before {
@@ -215,7 +218,7 @@ select {
   display: block;
   width: 58px;
   height: 6px;
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
   background: linear-gradient(90deg, var(--blue), var(--cyan), var(--purple));
   border-radius: 999px;
 }
@@ -236,12 +239,15 @@ p {
   margin: 0;
 }
 
+/* No max-width here: the 10ch cap was left over from when the title lived
+   in the narrow left sidebar, and it wrapped the title into four cramped
+   lines once this became a full-width page. */
 h1 {
   margin-top: 8px;
-  max-width: 10ch;
-  font-size: clamp(1.7rem, 1.9vw, 2.1rem);
-  line-height: 1.02;
-  letter-spacing: 0;
+  font-size: clamp(1.8rem, 2.6vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
   overflow-wrap: break-word;
 }
 
@@ -251,6 +257,11 @@ h1 {
   margin-top: 14px;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.brand-block p {
+  max-width: 62ch;
+  margin-inline: auto;
 }
 
 .input-group {
@@ -752,10 +763,13 @@ output {
 }
 
 .view-tabs {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
-  margin-top: 18px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 18px auto 0;
   padding: 6px;
   background: #eaf2ff;
   border: 1px solid var(--line);
@@ -2083,6 +2097,131 @@ output {
   grid-column: 1 / -1;
 }
 
+/* Planning Summary detail sections. Everything below the headline metrics
+   and the plain-English narrative stays folded away until the advisor opens
+   it, so a client is only ever looking at the one thing being explained. */
+.fold-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.fold-toolbar-note {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+#toggleAllFoldsButton {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+
+.summary-folds {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.fold {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.fold-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 20px;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold-summary:hover {
+  background: var(--cyan-soft);
+}
+
+.fold-summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.fold-heading {
+  min-width: 0;
+}
+
+.fold-heading h3 {
+  margin-top: 2px;
+  font-size: 1rem;
+}
+
+.fold-chevron {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border-right: 2.5px solid var(--blue);
+  border-bottom: 2.5px solid var(--blue);
+  border-radius: 1px;
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 0.2s ease;
+}
+
+.fold[open] > .fold-summary {
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+}
+
+.fold[open] > .fold-summary .fold-chevron {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+
+.fold-body {
+  padding: 18px 20px 20px;
+  animation: fold-in 0.18s ease;
+}
+
+.fold-body > .legend-pair {
+  margin-bottom: 14px;
+}
+
+.fold-body > .stress-control {
+  margin-bottom: 12px;
+}
+
+@keyframes fold-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold-chevron,
+  .fold-body {
+    transition: none;
+    animation: none;
+  }
+}
+
 .legend-pair {
   display: inline-flex;
   align-items: center;
@@ -2698,8 +2837,21 @@ td span {
   .dfi-topbar-button,
   .dfi-topbar-scenario,
   .dfi-topbar-status,
+  .fold-toolbar,
+  .fold-chevron,
   .view-tabs {
     display: none;
+  }
+
+  /* Every section is forced open before printing (see the beforeprint
+     handler), so the report reads as one continuous document. */
+  .fold {
+    break-inside: avoid;
+  }
+
+  .fold-summary,
+  .fold-body {
+    padding-inline: 0;
   }
 
   .app-shell,

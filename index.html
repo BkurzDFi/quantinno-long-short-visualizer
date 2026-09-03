@@ -435,102 +435,125 @@
             </article>
           </section>
 
-          <section class="chart-grid">
-            <article class="panel transition-panel">
-              <div class="panel-heading">
-                <div>
+          <div class="fold-toolbar">
+            <span class="fold-toolbar-note">Open a section to walk through the detail</span>
+            <button id="toggleAllFoldsButton" class="text-button" type="button" aria-expanded="false">Expand all</button>
+          </div>
+
+          <section class="summary-folds">
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">Transition equation</span>
-                <h3>Concentrated Stock + DEALS Extension Over Time</h3>
-                </div>
+                  <h3>Concentrated Stock + DEALS Extension Over Time</h3>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
                 <span class="legend-pair">
                   <i class="concentrated-dot"></i>Concentrated
                   <i class="core-dot"></i>Diversified core
                   <i class="long-dot"></i>Strategy long
                   <i class="short-dot"></i>Strategy short
                 </span>
+                <div id="transitionBlockChart" class="transition-block-chart"></div>
               </div>
-              <div id="transitionBlockChart" class="transition-block-chart"></div>
-            </article>
+            </details>
 
-            <article class="panel">
-              <div class="panel-heading">
-                <div>
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">Outcome range</span>
                   <h3>Tax-Neutral Sale Room</h3>
-                </div>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
+                <div id="capacityChart" class="capacity-chart"></div>
               </div>
-              <div id="capacityChart" class="capacity-chart"></div>
-            </article>
+            </details>
 
-            <article class="panel">
-              <div class="panel-heading">
-                <div>
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">Tax-smart order</span>
                   <h3>Which Positions Sell First</h3>
-                </div>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
+                <div id="saleOrderList" class="sale-order-list"></div>
               </div>
-              <div id="saleOrderList" class="sale-order-list"></div>
-            </article>
+            </details>
 
-            <article class="panel">
-              <div class="panel-heading">
-                <div>
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">Costs &amp; fees</span>
                   <h3>What the Strategy Costs</h3>
-                </div>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
+                <div id="feePanel" class="fee-panel"></div>
               </div>
-              <div id="feePanel" class="fee-panel"></div>
-            </article>
+            </details>
 
-            <article class="panel">
-              <div class="panel-heading">
-                <div>
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">What if</span>
                   <h3>Compare Exposure Settings</h3>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
+                <p class="status-copy">See how a different Exchange/Overlay gross exposure would change the base-case timeline and cost, without changing the plan above.</p>
+                <div class="compare-selects">
+                  <label>
+                    <span class="label-heading">Compare Exchange</span>
+                    <select id="compareExchangeExposure" class="select-input"></select>
+                  </label>
+                  <label>
+                    <span class="label-heading">Compare Overlay</span>
+                    <select id="compareOverlayExposure" class="select-input"></select>
+                  </label>
                 </div>
+                <div id="exposureCompareBody" class="exposure-compare-body"></div>
               </div>
-              <p class="status-copy">See how a different Exchange/Overlay gross exposure would change the base-case timeline and cost, without changing the plan above.</p>
-              <div class="compare-selects">
-                <label>
-                  <span class="label-heading">Compare Exchange</span>
-                  <select id="compareExchangeExposure" class="select-input"></select>
-                </label>
-                <label>
-                  <span class="label-heading">Compare Overlay</span>
-                  <select id="compareOverlayExposure" class="select-input"></select>
-                </label>
-              </div>
-              <div id="exposureCompareBody" class="exposure-compare-body"></div>
-            </article>
+            </details>
 
-            <article class="panel table-panel">
-              <div class="panel-heading">
-                <div>
+            <details class="fold">
+              <summary class="fold-summary">
+                <span class="fold-heading">
                   <span class="kicker">Base case</span>
                   <h3>Year-by-Year Plan</h3>
-                </div>
+                </span>
+                <span class="fold-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="fold-body">
                 <div class="stress-control">
                   <label for="stressShock">Stock price while waiting</label>
                   <input id="stressShock" type="range" min="-60" max="40" step="5" value="-20" />
                   <output id="stressShockValue">-20%</output>
                 </div>
+                <p class="status-copy" id="stressCaption"></p>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Year</th>
+                        <th>Losses</th>
+                        <th>Stock Sold</th>
+                        <th>Remaining</th>
+                        <th id="stressColumnHeader">If -20%</th>
+                      </tr>
+                    </thead>
+                    <tbody id="planTable"></tbody>
+                  </table>
+                </div>
               </div>
-              <p class="status-copy" id="stressCaption"></p>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Year</th>
-                      <th>Losses</th>
-                      <th>Stock Sold</th>
-                      <th>Remaining</th>
-                      <th id="stressColumnHeader">If -20%</th>
-                    </tr>
-                  </thead>
-                  <tbody id="planTable"></tbody>
-                </table>
-              </div>
-            </article>
+            </details>
           </section>
         </div>
 
